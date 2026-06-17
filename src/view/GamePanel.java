@@ -13,11 +13,8 @@ import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
-import java.awt.image.ConvolveOp;
-import java.awt.image.Kernel;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 
 import javax.imageio.ImageIO;
 import javax.swing.JPanel;
@@ -96,39 +93,20 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading background images
     private BufferedImage loadBackground() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpg")) {
-            if (in == null) {
-                System.err.println("Failed to load image: /resources/background.jpg");
-                return null;
-            }
+    try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpg")) {
 
-            BufferedImage original = ImageIO.read(in);
-            BufferedImage fitted   = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_RGB);
-            Graphics2D g2 = fitted.createGraphics();
-            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-
-            // Draw and scale the background image to fill the panel
-            double scale   = Math.max((double) WIDTH / original.getWidth(), (double) HEIGHT / original.getHeight());
-            int drawWidth  = (int) Math.round(original.getWidth()  * scale);
-            int drawHeight = (int) Math.round(original.getHeight() * scale);
-            int drawX      = (WIDTH  - drawWidth)  / 2;
-            int drawY      = (HEIGHT - drawHeight) / 2;
-            g2.drawImage(original, drawX, drawY, drawWidth, drawHeight, null);
-            g2.dispose();
-
-            // Apply a blur effect to the background image
-            int size     = 15;
-            float weight = 1f / (size * size);
-            float[] data = new float[size * size];
-            Arrays.fill(data, weight);
-            return new ConvolveOp(new Kernel(size, size, data), ConvolveOp.EDGE_ZERO_FILL, null).filter(fitted, null);
-        } catch (Exception e) {
+        if (in == null) {
             System.err.println("Failed to load image: /resources/background.jpg");
             return null;
         }
-    }
 
+        return ImageIO.read(in);
+
+    } catch (Exception e) {
+        System.err.println("Failed to load image: /resources/background.jpg");
+        return null;
+    }
+}
     @Override
     // Main rendering method for the game panel
     public void paintComponent(Graphics g) {
@@ -141,14 +119,43 @@ public class GamePanel extends JPanel {
 
         // Draw the game background
         if (background == null) {
-            g2.setColor(new Color(20, 21, 24));
-            g2.fillRect(0, 0, getWidth(), getHeight());
-        } else {
-            Composite oldComposite = g2.getComposite();
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, BACKGROUND_ALPHA));
-            g2.drawImage(background, 0, 0, null);
-            g2.setComposite(oldComposite);
-        }
+
+    g2.setColor(new Color(20, 21, 24));
+    g2.fillRect(0, 0, getWidth(), getHeight());
+
+} else {
+
+    Composite oldComposite = g2.getComposite();
+
+    g2.setComposite(
+        AlphaComposite.getInstance(
+            AlphaComposite.SRC_OVER,
+            BACKGROUND_ALPHA
+        )
+    );
+
+    double scale = Math.max(
+        (double) getWidth() / background.getWidth(),
+        (double) getHeight() / background.getHeight()
+    );
+
+    int drawWidth = (int)(background.getWidth() * scale);
+    int drawHeight = (int)(background.getHeight() * scale);
+
+    int drawX = (getWidth() - drawWidth) / 2;
+    int drawY = (getHeight() - drawHeight) / 2;
+
+    g2.drawImage(
+        background,
+        drawX,
+        drawY,
+        drawWidth,
+        drawHeight,
+        null
+    );
+
+    g2.setComposite(oldComposite);
+}
 
         board.draw(g2);
 
