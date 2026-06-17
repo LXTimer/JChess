@@ -4,7 +4,7 @@ A classical chess game implemented using **Java**.
 The game features smooth gameplay logic and a simple graphical interface for intuitive play.  
 It follows all official chess rules — including **castling**, **en passant**, and **pawn promotion**.
 
-![JChess Screenshot](resources/screenshots/jchess_board.png)
+![JChess Screenshot](screenshots/jchess_board.png)
 
 
 ---
