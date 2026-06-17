@@ -425,7 +425,7 @@ public class GamePanel extends JPanel {
 
     private void drawCapturedPieces(Graphics2D g2) {
         ArrayList<Piece> capturedWhite = gm.getSortedCapturedPieces(GameManager.WHITE);
-        int topY = SIDE_PANEL_Y + 20;
+        int topY = SIDE_PANEL_Y + 60;
         int topEndX = drawCapturedList(g2, capturedWhite, SIDE_PANEL_X + 16, topY);
 
         ArrayList<Piece> capturedBlack = gm.getSortedCapturedPieces(GameManager.BLACK);
