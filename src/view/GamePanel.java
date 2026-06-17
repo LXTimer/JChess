@@ -36,15 +36,15 @@ public class GamePanel extends JPanel {
     private static final int TIMER_DELAY = 1000 / FPS;
     private static final int BOARD_PIXEL_SIZE    = Board.SIZE * 8;
     private static final int SIDE_PANEL_X        = BOARD_PIXEL_SIZE + 12;
-    private static final int SIDE_PANEL_Y        = 24;
+    private static final int SIDE_PANEL_Y        = 45;
     private static final int SIDE_PANEL_WIDTH    = WIDTH - SIDE_PANEL_X - 16;
-    private static final int SIDE_PANEL_HEIGHT   = HEIGHT - SIDE_PANEL_Y * 2;
+    private static final int SIDE_PANEL_HEIGHT   = 510;
     private static final int SIDE_PANEL_CENTER_X = SIDE_PANEL_X + SIDE_PANEL_WIDTH / 2;
-    private static final int BLACK_TURN_Y        = SIDE_PANEL_Y + 96;
-    private static final int BLACK_CHECK_Y       = BLACK_TURN_Y + 36;
-    private static final int WHITE_TURN_Y        = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 86;
-    private static final int WHITE_CHECK_Y       = WHITE_TURN_Y + 36;
-    private static final int PROMOTION_LABEL_Y   = SIDE_PANEL_Y + 126;
+    private static final int BLACK_TURN_Y        = SIDE_PANEL_Y + 45;
+    private static final int BLACK_CHECK_Y       = BLACK_TURN_Y + 25;
+    private static final int WHITE_TURN_Y        = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 45;
+    private static final int WHITE_CHECK_Y       = WHITE_TURN_Y - 30;
+    private static final int PROMOTION_LABEL_Y   = SIDE_PANEL_Y + 105;
     private static final int MOVE_DOT_OUTER_SIZE = 30;
     private static final int MOVE_DOT_INNER_SIZE = 15;
     private static final float BACKGROUND_ALPHA  = 0.70f;
@@ -69,6 +69,11 @@ public class GamePanel extends JPanel {
 
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
+        addMouseWheelListener(e -> {
+            int notches = e.getWheelRotation();
+            gm.scrollMoveLog(notches);
+            repaint();
+        });
     }
 
     // Start method
@@ -91,9 +96,9 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading background images
     private BufferedImage loadBackground() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpeg")) {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpg")) {
             if (in == null) {
-                System.err.println("Failed to load image: /resources/background.jpeg");
+                System.err.println("Failed to load image: /resources/background.jpg");
                 return null;
             }
 
@@ -119,7 +124,7 @@ public class GamePanel extends JPanel {
             Arrays.fill(data, weight);
             return new ConvolveOp(new Kernel(size, size, data), ConvolveOp.EDGE_ZERO_FILL, null).filter(fitted, null);
         } catch (Exception e) {
-            System.err.println("Failed to load image: /resources/background.jpeg");
+            System.err.println("Failed to load image: /resources/background.jpg");
             return null;
         }
     }
@@ -146,6 +151,14 @@ public class GamePanel extends JPanel {
         }
 
         board.draw(g2);
+
+        // Draw last move highlight on the board
+        if (!gm.moves.isEmpty()) {
+            MoveRecord lastMove = gm.moves.get(gm.moves.size() - 1);
+            g2.setColor(new Color(218, 224, 115, 100)); // Sleek semi-transparent yellow-green
+            g2.fillRect(lastMove.fromCol * Board.SIZE, lastMove.fromRow * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.fillRect(lastMove.toCol * Board.SIZE, lastMove.toRow * Board.SIZE, Board.SIZE, Board.SIZE);
+        }
 
         // Draw the side information panel
         g2.setColor(new Color(12, 14, 18, 176));
@@ -178,6 +191,15 @@ public class GamePanel extends JPanel {
 
         // Draw turn information and promotion options
         drawStatus(g2);
+
+        // Draw captured pieces tracker
+        drawCapturedPieces(g2);
+
+        // Draw the move log (only when not in promotion screen)
+        if (!gm.promotion) {
+            drawMoveLog(g2);
+        }
+
         // Display the game result when the game ends
         drawGameResult(g2);
     }
@@ -265,18 +287,132 @@ public class GamePanel extends JPanel {
     private void drawGameResult(Graphics2D g2) {
         if (gm.gameOver) {
             String s = (gm.currentColor == GameManager.WHITE) ? "White Wins" : "Black Wins";
-            g2.setFont(new Font("Roboto", Font.BOLD, 28));
+            g2.setFont(new Font("Roboto", Font.BOLD, 26));
             g2.setColor(new Color(255, 88, 88));
-            drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, 246);
-            g2.setFont(new Font("Roboto", Font.BOLD, 34));
+            drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, 480);
+            g2.setFont(new Font("Roboto", Font.BOLD, 30));
             g2.setColor(new Color(126, 255, 140));
-            drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, 292);
+            drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, 520);
         }
 
         if (gm.stalemate) {
-            g2.setFont(new Font("Roboto", Font.BOLD, 34));
+            g2.setFont(new Font("Roboto", Font.BOLD, 30));
             g2.setColor(Color.lightGray);
-            drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, 292);
+            drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, 500);
+        }
+    }
+
+    private void drawMoveLog(Graphics2D g2) {
+        int boxX = SIDE_PANEL_X + 16;
+        int boxY = 140;
+        int boxWidth = SIDE_PANEL_WIDTH - 32;
+        int boxHeight = 300;
+
+        // Draw the background box for the log
+        g2.setColor(new Color(10, 12, 16, 180));
+        g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
+        g2.setColor(new Color(255, 255, 255, 30));
+        g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
+
+        // Header
+        g2.setFont(new Font("Roboto", Font.BOLD, 13));
+        g2.setColor(new Color(160, 170, 185));
+        g2.drawString("MOVE LOG", boxX + 12, boxY + 22);
+
+        // Underline header
+        g2.setColor(new Color(255, 255, 255, 20));
+        g2.drawLine(boxX + 10, boxY + 32, boxX + boxWidth - 10, boxY + 32);
+
+        // Table headers: No., White, Black
+        int col1X = boxX + 15;
+        int col2X = boxX + 75;
+        int col3X = boxX + 155;
+        int rowStartY = boxY + 48;
+        int rowHeight = 22;
+
+        g2.setFont(new Font("Roboto", Font.BOLD, 12));
+        g2.setColor(new Color(110, 120, 135));
+        g2.drawString("Move", col1X, rowStartY);
+        g2.drawString("White", col2X, rowStartY);
+        g2.drawString("Black", col3X, rowStartY);
+
+        // Divider under table headers
+        g2.setColor(new Color(255, 255, 255, 15));
+        g2.drawLine(boxX + 10, rowStartY + 6, boxX + boxWidth - 10, rowStartY + 6);
+
+        // Render moves
+        int startY = rowStartY + 22;
+        int totalMoves = gm.moves.size();
+        int totalPairs = (totalMoves + 1) / 2;
+        int maxVisible = 10;
+
+        g2.setFont(new Font("Roboto", Font.PLAIN, 13));
+
+        for (int i = 0; i < maxVisible; i++) {
+            int pairIndex = gm.scrollStartLine + i;
+            if (pairIndex >= totalPairs) {
+                break;
+            }
+
+            int currentY = startY + i * rowHeight;
+
+            // Draw move number
+            g2.setColor(new Color(110, 120, 135));
+            g2.drawString((pairIndex + 1) + ".", col1X, currentY);
+
+            // Draw White's move
+            int whiteMoveIndex = pairIndex * 2;
+            if (whiteMoveIndex < totalMoves) {
+                MoveRecord whiteMove = gm.moves.get(whiteMoveIndex);
+                boolean isLastMove = (whiteMoveIndex == totalMoves - 1);
+
+                if (isLastMove) {
+                    // Highlight last move in the log
+                    g2.setColor(new Color(0, 120, 215, 60)); // soft blue highlight
+                    g2.fillRoundRect(col2X - 5, currentY - 14, 65, 18, 4, 4);
+                    g2.setColor(new Color(255, 255, 255));
+                } else {
+                    g2.setColor(new Color(210, 215, 225));
+                }
+                g2.drawString(whiteMove.san, col2X, currentY);
+            }
+
+            // Draw Black's move
+            int blackMoveIndex = pairIndex * 2 + 1;
+            if (blackMoveIndex < totalMoves) {
+                MoveRecord blackMove = gm.moves.get(blackMoveIndex);
+                boolean isLastMove = (blackMoveIndex == totalMoves - 1);
+
+                if (isLastMove) {
+                    // Highlight last move in the log
+                    g2.setColor(new Color(0, 120, 215, 60)); // soft blue highlight
+                    g2.fillRoundRect(col3X - 5, currentY - 14, 65, 18, 4, 4);
+                    g2.setColor(new Color(255, 255, 255));
+                } else {
+                    g2.setColor(new Color(210, 215, 225));
+                }
+                g2.drawString(blackMove.san, col3X, currentY);
+            }
+        }
+
+        // Draw scrollbar if scrollable
+        if (totalPairs > maxVisible) {
+            int scrollbarX = boxX + boxWidth - 8;
+            int scrollbarY = startY - 12;
+            int scrollbarHeight = boxHeight - (scrollbarY - boxY) - 10;
+            int scrollbarWidth = 4;
+
+            // Track
+            g2.setColor(new Color(255, 255, 255, 10));
+            g2.fillRoundRect(scrollbarX, scrollbarY, scrollbarWidth, scrollbarHeight, 2, 2);
+
+            // Thumb
+            int thumbHeight = scrollbarHeight * maxVisible / totalPairs;
+            if (thumbHeight < 15) thumbHeight = 15;
+            int thumbY = scrollbarY + (scrollbarHeight - thumbHeight) * gm.scrollStartLine / (totalPairs - maxVisible);
+
+            g2.setColor(new Color(255, 255, 255, 60));
+            g2.fillRoundRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight, 2, 2);
         }
     }
 
@@ -285,5 +421,48 @@ public class GamePanel extends JPanel {
         FontMetrics metrics = g2.getFontMetrics();
         int textX = centerX - metrics.stringWidth(text) / 2;
         g2.drawString(text, textX, baselineY);
+    }
+
+    private void drawCapturedPieces(Graphics2D g2) {
+        ArrayList<Piece> capturedWhite = gm.getSortedCapturedPieces(GameManager.WHITE);
+        int topY = SIDE_PANEL_Y + 20;
+        int topEndX = drawCapturedList(g2, capturedWhite, SIDE_PANEL_X + 16, topY);
+
+        ArrayList<Piece> capturedBlack = gm.getSortedCapturedPieces(GameManager.BLACK);
+        int bottomY = 455;
+        int bottomEndX = drawCapturedList(g2, capturedBlack, SIDE_PANEL_X + 16, bottomY);
+
+        int valWhite = gm.getCapturedValueByWhite();
+        int valBlack = gm.getCapturedValueByBlack();
+
+        g2.setFont(new Font("Roboto", Font.BOLD, 12));
+
+        if (valWhite > valBlack) {
+            g2.setColor(new Color(210, 215, 225));
+            g2.drawString("+" + (valWhite - valBlack), bottomEndX + 8, bottomY + 15);
+        } else if (valBlack > valWhite) {
+            g2.setColor(new Color(210, 215, 225));
+            g2.drawString("+" + (valBlack - valWhite), topEndX + 8, topY + 15);
+        }
+    }
+
+    private int drawCapturedList(Graphics2D g2, ArrayList<Piece> piecesList, int startX, int startY) {
+        int currentX = startX;
+        int iconSize = 20;
+        String prevType = null;
+        for (Piece p : piecesList) {
+            if (p.img != null) {
+                if (prevType != null) {
+                    if (p.type.equals(prevType)) {
+                        currentX += 8;
+                    } else {
+                        currentX += 22;
+                    }
+                }
+                g2.drawImage(p.img, currentX, startY, iconSize, iconSize, null);
+                prevType = p.type;
+            }
+        }
+        return prevType == null ? startX : currentX + iconSize;
     }
 }
