@@ -5,8 +5,8 @@ public class Queen extends Piece {
     // Constructor for Queen piece
     public Queen(int col, int row, int color) {
         super(col, row, color);
-        this.type = "QUEEN";
-        this.img = getImage("/resources/" + (color == 0 ? "white" : "black") + "-queen");
+        this.type = PieceType.QUEEN;
+        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-queen");
     }
     // Check if the queen can move to the target position
 

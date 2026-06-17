@@ -11,7 +11,7 @@ import java.util.Objects;
 public class Piece {
 
     // Declare essential attributes for a chess piece
-    public String type;
+    public PieceType type;
     public BufferedImage img;
     public int x, y;
     public int col, row, preCol, preRow;
@@ -85,7 +85,7 @@ public class Piece {
     }
 
     public void updatePosition() {
-        if ("PAWN".equals(type) && Math.abs(row - preRow) == 2) {
+        if (type == PieceType.PAWN && Math.abs(row - preRow) == 2) {
             twoStepped = true;
         }
 

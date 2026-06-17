@@ -4,8 +4,8 @@ public class Bishop extends Piece {
     // Constructor for Bishop piece
     public Bishop(int col, int row, int color) {
         super(col, row, color);
-        this.type = "BISHOP";
-        this.img = getImage("/resources/" + (color == 0 ? "white" : "black") + "-bishop");
+        this.type = PieceType.BISHOP;
+        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-bishop");
     }
 
     // Check if the bishop can move to the target position

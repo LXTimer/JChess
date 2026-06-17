@@ -4,8 +4,8 @@ public class Knight extends Piece {
     // Constructor for Knight piece
     public Knight(int col, int row, int color) {
         super(col, row, color);
-        this.type = "KNIGHT";
-        this.img = getImage("/resources/" + (color == 0 ? "white" : "black") + "-knight");
+        this.type = PieceType.KNIGHT;
+        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-knight");
     }
 
     @Override

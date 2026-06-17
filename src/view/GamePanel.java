@@ -23,35 +23,38 @@ import javax.swing.Timer;
 import controller.Mouse;
 import model.Board;
 import piece.Piece;
+import piece.PieceType;
 
 public class GamePanel extends JPanel {
 
     // Declare all the variables
-    public static final int WIDTH  = 900;
+    public static final int WIDTH = 900;
     public static final int HEIGHT = 600;
     private static final int FPS = 120;
     private static final int TIMER_DELAY = 1000 / FPS;
-    private static final int BOARD_PIXEL_SIZE    = Board.SIZE * 8;
-    private static final int SIDE_PANEL_X        = BOARD_PIXEL_SIZE + 12;
-    private static final int SIDE_PANEL_Y        = 45;
-    private static final int SIDE_PANEL_WIDTH    = WIDTH - SIDE_PANEL_X - 16;
-    private static final int SIDE_PANEL_HEIGHT   = 510;
+    private static final int BOARD_PIXEL_SIZE = Board.SIZE * 8;
+    private static final int SIDE_PANEL_X = BOARD_PIXEL_SIZE + 12;
+    private static final int SIDE_PANEL_Y = 45;
+    private static final int SIDE_PANEL_WIDTH = WIDTH - SIDE_PANEL_X - 16;
+    private static final int SIDE_PANEL_HEIGHT = 510;
     private static final int SIDE_PANEL_CENTER_X = SIDE_PANEL_X + SIDE_PANEL_WIDTH / 2;
-    private static final int BLACK_TURN_Y        = SIDE_PANEL_Y + 45;
-    private static final int BLACK_CHECK_Y       = BLACK_TURN_Y + 25;
-    private static final int WHITE_TURN_Y        = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 45;
-    private static final int WHITE_CHECK_Y       = WHITE_TURN_Y - 30;
-    private static final int PROMOTION_LABEL_Y   = SIDE_PANEL_Y + 105;
+    private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 45;
+    private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 25;
+    private static final int WHITE_TURN_Y = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 45;
+    private static final int WHITE_CHECK_Y = WHITE_TURN_Y - 30;
+    private static final int PROMOTION_LABEL_Y = SIDE_PANEL_Y + 105;
     private static final int MOVE_DOT_OUTER_SIZE = 30;
     private static final int MOVE_DOT_INNER_SIZE = 15;
-    private static final float BACKGROUND_ALPHA  = 0.70f;
+    private static final float BACKGROUND_ALPHA = 0.70f;
 
     private Timer gameTimer;
     private final Board board;
     private final Mouse mouse;
     private final GameManager gm;
     private BufferedImage background;
+    private BufferedImage flipBoardIcon;
     private boolean mousePressedLastFrame = false;
+    private java.awt.Rectangle flipButtonRect = new java.awt.Rectangle();
 
     // Constructor
     public GamePanel() {
@@ -61,8 +64,9 @@ public class GamePanel extends JPanel {
 
         mouse = new Mouse();
         board = new Board();
-        gm    = new GameManager(mouse);
+        gm = new GameManager(mouse);
         background = loadBackground();
+        flipBoardIcon = loadFlipBoardIcon();
 
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
@@ -80,11 +84,18 @@ public class GamePanel extends JPanel {
         }
 
         gameTimer = new Timer(TIMER_DELAY, e -> {
-            boolean mouseJustPressed  = mouse.pressed && !mousePressedLastFrame;
+            boolean mouseJustPressed = mouse.pressed && !mousePressedLastFrame;
             boolean mouseJustReleased = !mouse.pressed && mousePressedLastFrame;
             mousePressedLastFrame = mouse.pressed;
-            // Main game loop update method
-            gm.update(mouseJustPressed, mouseJustReleased);
+
+            // Check for flip button click
+            if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
+                gm.toggleFlipBoard();
+            } else {
+                // Main game loop update method
+                gm.update(mouseJustPressed, mouseJustReleased);
+            }
+
             repaint();
         });
         gameTimer.setCoalesce(true);
@@ -93,78 +104,113 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading background images
     private BufferedImage loadBackground() {
-    try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpg")) {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpg")) {
 
-        if (in == null) {
+            if (in == null) {
+                System.err.println("Failed to load image: /resources/background.jpg");
+                return null;
+            }
+
+            return ImageIO.read(in);
+
+        } catch (Exception e) {
             System.err.println("Failed to load image: /resources/background.jpg");
             return null;
         }
-
-        return ImageIO.read(in);
-
-    } catch (Exception e) {
-        System.err.println("Failed to load image: /resources/background.jpg");
-        return null;
     }
-}
+
+    // Helper method for loading the flip board icon
+    private BufferedImage loadFlipBoardIcon() {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/icons/flip_board.png")) {
+            if (in == null) {
+                System.err.println("Failed to load image: /resources/icons/flip_board.png");
+                return null;
+            }
+            return scaleImage(ImageIO.read(in), 14, 14);
+        } catch (Exception e) {
+            System.err.println("Failed to load image: /resources/icons/flip_board.png");
+            return null;
+        }
+    }
+
+    // Helper method for scaling images
+    private BufferedImage scaleImage(BufferedImage src, int width, int height) {
+        BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = scaled.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.drawImage(src, 0, 0, width, height, null);
+        g2.dispose();
+        return scaled;
+    }
+
     @Override
     // Main rendering method for the game panel
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
 
         Graphics2D g2 = (Graphics2D) g;
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
-        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,     RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
         // Draw the game background
         if (background == null) {
 
-    g2.setColor(new Color(20, 21, 24));
-    g2.fillRect(0, 0, getWidth(), getHeight());
+            g2.setColor(new Color(20, 21, 24));
+            g2.fillRect(0, 0, getWidth(), getHeight());
 
-} else {
+        } else {
 
-    Composite oldComposite = g2.getComposite();
+            Composite oldComposite = g2.getComposite();
 
-    g2.setComposite(
-        AlphaComposite.getInstance(
-            AlphaComposite.SRC_OVER,
-            BACKGROUND_ALPHA
-        )
-    );
+            g2.setComposite(
+                    AlphaComposite.getInstance(
+                            AlphaComposite.SRC_OVER,
+                            BACKGROUND_ALPHA));
 
-    double scale = Math.max(
-        (double) getWidth() / background.getWidth(),
-        (double) getHeight() / background.getHeight()
-    );
+            double scale = Math.max(
+                    (double) getWidth() / background.getWidth(),
+                    (double) getHeight() / background.getHeight());
 
-    int drawWidth = (int)(background.getWidth() * scale);
-    int drawHeight = (int)(background.getHeight() * scale);
+            int drawWidth = (int) (background.getWidth() * scale);
+            int drawHeight = (int) (background.getHeight() * scale);
 
-    int drawX = (getWidth() - drawWidth) / 2;
-    int drawY = (getHeight() - drawHeight) / 2;
+            int drawX = (getWidth() - drawWidth) / 2;
+            int drawY = (getHeight() - drawHeight) / 2;
 
-    g2.drawImage(
-        background,
-        drawX,
-        drawY,
-        drawWidth,
-        drawHeight,
-        null
-    );
+            g2.drawImage(
+                    background,
+                    drawX,
+                    drawY,
+                    drawWidth,
+                    drawHeight,
+                    null);
 
-    g2.setComposite(oldComposite);
-}
+            g2.setComposite(oldComposite);
+        }
 
         board.draw(g2);
 
         // Draw last move highlight on the board
         if (!gm.moves.isEmpty()) {
             MoveRecord lastMove = gm.moves.get(gm.moves.size() - 1);
+            int fromCol = lastMove.fromCol;
+            int fromRow = lastMove.fromRow;
+            int toCol = lastMove.toCol;
+            int toRow = lastMove.toRow;
+
+            // Flip coordinates if board is flipped (since move history is in original
+            // coordinates)
+            if (gm.isBoardFlipped()) {
+                fromCol = 7 - fromCol;
+                fromRow = 7 - fromRow;
+                toCol = 7 - toCol;
+                toRow = 7 - toRow;
+            }
+
             g2.setColor(new Color(218, 224, 115, 100)); // Sleek semi-transparent yellow-green
-            g2.fillRect(lastMove.fromCol * Board.SIZE, lastMove.fromRow * Board.SIZE, Board.SIZE, Board.SIZE);
-            g2.fillRect(lastMove.toCol * Board.SIZE, lastMove.toRow * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.fillRect(fromCol * Board.SIZE, fromRow * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.fillRect(toCol * Board.SIZE, toRow * Board.SIZE, Board.SIZE, Board.SIZE);
         }
 
         // Draw the side information panel
@@ -178,7 +224,7 @@ public class GamePanel extends JPanel {
 
         // Draw all pieces currently on the board
         for (Piece p : new ArrayList<>(gm.simPieces)) {
-            p.draw(g2);
+            drawPieceWithFlip(g2, p);
         }
 
         // Mark squares that are legal moves for the piece
@@ -193,7 +239,7 @@ public class GamePanel extends JPanel {
             if (gm.canMove && gm.validSquare) {
                 drawMoveDot(g2, gm.activeP.col, gm.activeP.row);
             }
-            gm.activeP.draw(g2);
+            drawPieceWithFlip(g2, gm.activeP);
         }
 
         // Draw turn information and promotion options
@@ -215,8 +261,8 @@ public class GamePanel extends JPanel {
     private void drawMoveDot(Graphics2D g2, int col, int row) {
         double centerX = col * Board.SIZE + Board.SIZE / 2.0;
         double centerY = row * Board.SIZE + Board.SIZE / 2.0;
-        double outerR  = MOVE_DOT_OUTER_SIZE / 2.0;
-        double innerR  = MOVE_DOT_INNER_SIZE / 2.0;
+        double outerR = MOVE_DOT_OUTER_SIZE / 2.0;
+        double innerR = MOVE_DOT_INNER_SIZE / 2.0;
 
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
         g2.setColor(Color.white);
@@ -229,15 +275,17 @@ public class GamePanel extends JPanel {
 
     // Highlight the king when it is in check
     private void drawCheckedKingGlow(Graphics2D g2) {
-        if (gm.checkingP == null) return;
+        if (gm.checkingP == null)
+            return;
         Piece king = null;
         for (Piece p : gm.simPieces) {
-            if ("KING".equals(p.type) && p.color == gm.getOppositeColor(gm.checkingP.color)) {
+            if (p.type == PieceType.KING && p.color == gm.getOppositeColor(gm.checkingP.color)) {
                 king = p;
                 break;
             }
         }
-        if (king == null) return;
+        if (king == null)
+            return;
 
         double centerX = king.col * Board.SIZE + Board.SIZE / 2.0;
         double centerY = king.row * Board.SIZE + Board.SIZE / 2.0;
@@ -252,6 +300,17 @@ public class GamePanel extends JPanel {
         }
 
         g2.setComposite(oldComposite);
+    }
+
+    // Draw a piece with board flip transformation applied
+    private void drawPieceWithFlip(Graphics2D g2, Piece p) {
+        if (!gm.isBoardFlipped()) {
+            p.draw(g2);
+            return;
+        }
+
+        // Draw piece at its current (already flipped) position
+        p.draw(g2);
     }
 
     // Draw turn information and promotion options
@@ -325,6 +384,26 @@ public class GamePanel extends JPanel {
         g2.setFont(new Font("Roboto", Font.BOLD, 13));
         g2.setColor(new Color(160, 170, 185));
         g2.drawString("MOVE LOG", boxX + 12, boxY + 22);
+
+        // Draw flip button in top right corner
+        int buttonWidth = 30;
+        int buttonHeight = 20;
+        int buttonX = boxX + boxWidth - buttonWidth - 10;
+        int buttonY = boxY + 5;
+        flipButtonRect.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
+
+        g2.setColor(new Color(60, 120, 180, 200));
+        g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
+        g2.setColor(new Color(200, 200, 200));
+        g2.setStroke(new java.awt.BasicStroke(1.5f));
+        g2.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
+
+        // Draw flip icon
+        if (flipBoardIcon != null) {
+            g2.drawImage(flipBoardIcon, buttonX + (buttonWidth - flipBoardIcon.getWidth()) / 2, 
+                        buttonY + (buttonHeight - flipBoardIcon.getHeight()) / 2, null);
+
+        }
 
         // Underline header
         g2.setColor(new Color(255, 255, 255, 20));
@@ -415,7 +494,8 @@ public class GamePanel extends JPanel {
 
             // Thumb
             int thumbHeight = scrollbarHeight * maxVisible / totalPairs;
-            if (thumbHeight < 15) thumbHeight = 15;
+            if (thumbHeight < 15)
+                thumbHeight = 15;
             int thumbY = scrollbarY + (scrollbarHeight - thumbHeight) * gm.scrollStartLine / (totalPairs - maxVisible);
 
             g2.setColor(new Color(255, 255, 255, 60));
@@ -456,11 +536,11 @@ public class GamePanel extends JPanel {
     private int drawCapturedList(Graphics2D g2, ArrayList<Piece> piecesList, int startX, int startY) {
         int currentX = startX;
         int iconSize = 20;
-        String prevType = null;
+        PieceType prevType = null;
         for (Piece p : piecesList) {
             if (p.img != null) {
                 if (prevType != null) {
-                    if (p.type.equals(prevType)) {
+                    if (p.type == prevType) {
                         currentX += 8;
                     } else {
                         currentX += 22;

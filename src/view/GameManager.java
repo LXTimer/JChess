@@ -5,11 +5,13 @@ import java.awt.Point;
 import java.util.ArrayList;
 
 import model.Board;
+import model.BoardState;
 import piece.Bishop;
 import piece.King;
 import piece.Knight;
 import piece.Pawn;
 import piece.Piece;
+import piece.PieceType;
 import piece.Queen;
 import piece.Rook;
 
@@ -17,6 +19,7 @@ public class GameManager {
 
     public static final int WHITE = 0;
     public static final int BLACK = 1;
+    public static boolean isBoardFlipped = false;
 
     // Declare all the variables
     public ArrayList<Piece> pieces = new ArrayList<>();
@@ -38,8 +41,20 @@ public class GameManager {
     public boolean promotion;
     public boolean gameOver;
     public boolean stalemate;
+    public boolean boardFlipped = false;
 
     private final Mouse mouse;
+    
+    // Caches for optimization
+    private ArrayList<Piece> cachedSortedWhite;
+    private ArrayList<Piece> cachedSortedBlack;
+    private int cachedCapturedCount = -1;
+
+    public GameManager() {
+        this.mouse = new Mouse();
+        setPieces();
+        copyPieces(pieces, simPieces);
+    }
 
     // Constructor
     public GameManager(Mouse mouse) {
@@ -100,8 +115,8 @@ public class GameManager {
         } else {
             if (mouse.pressed) {
                 if (mouseJustPressed) {
-                    int mouseCol = mouse.x / Board.SIZE;
-                    int mouseRow = mouse.y / Board.SIZE;
+                    int mouseCol = getMouseColOnBoard();
+                    int mouseRow = getMouseRowOnBoard();
                     // Get the piece located on a specific square
                     Piece clickedPiece = getPieceAt(mouseCol, mouseRow);
 
@@ -124,8 +139,8 @@ public class GameManager {
                     simulate();
                 }
             } else if (mouseJustReleased) {
-                int currentCol = mouse.x / Board.SIZE;
-                int currentRow = mouse.y / Board.SIZE;
+                int currentCol = getMouseColOnBoard();
+                int currentRow = getMouseRowOnBoard();
 
                 if (currentCol == activeP.preCol && currentRow == activeP.preRow) {
                     activeP.resetPosition();
@@ -146,8 +161,8 @@ public class GameManager {
 
     // Select a piece when the player clicks on it
     private void selectActivePiece() {
-        int mouseCol = mouse.x / Board.SIZE;
-        int mouseRow = mouse.y / Board.SIZE;
+        int mouseCol = getMouseColOnBoard();
+        int mouseRow = getMouseRowOnBoard();
 
         if (!isWithinBoard(mouseCol, mouseRow)) {
             return;
@@ -177,6 +192,14 @@ public class GameManager {
         int toRow = activeP.row;
 
         String san = generateSAN(activeP, toCol, toRow, isCapture, isCastling);
+
+        // Store move in ORIGINAL coordinates (flip back if board is currently flipped)
+        if (boardFlipped) {
+            fromCol = 7 - fromCol;
+            fromRow = 7 - fromRow;
+            toCol = 7 - toCol;
+            toRow = 7 - toRow;
+        }
 
         copyPieces(savedSimPieces, simPieces);
 
@@ -220,18 +243,18 @@ public class GameManager {
         if (mouse.pressed) {
             for (Piece p : promoPieces) {
                 if (p.col == mouse.x / Board.SIZE && p.row == mouse.y / Board.SIZE) {
-                    String promoType = p.type;
+                    PieceType promoType = p.type;
                     String suffix = "";
                     switch (promoType) {
-                        case "ROOK":
+                        case ROOK:
                             simPieces.add(new Rook(activeP.col, activeP.row, currentColor));
                             suffix = "=R";
                             break;
-                        case "KNIGHT":
+                        case KNIGHT:
                             simPieces.add(new Knight(activeP.col, activeP.row, currentColor));
                             suffix = "=N";
                             break;
-                        case "BISHOP":
+                        case BISHOP:
                             simPieces.add(new Bishop(activeP.col, activeP.row, currentColor));
                             suffix = "=B";
                             break;
@@ -246,7 +269,7 @@ public class GameManager {
                     if (!moves.isEmpty()) {
                         MoveRecord lastMove = moves.get(moves.size() - 1);
                         lastMove.san += suffix;
-                        lastMove.promotionType = promoType;
+                        lastMove.promotionType = promoType.toString();
                     }
 
                     activeP = null;
@@ -355,7 +378,7 @@ public class GameManager {
 
     // Check whether a pawn can be promoted
     private boolean canPromote() {
-        if ("PAWN".equals(activeP.type)) {
+        if (activeP.type == PieceType.PAWN) {
             if ((currentColor == WHITE && activeP.row == 0) || (currentColor == BLACK && activeP.row == 7)) {
                 promoPieces.clear();
                 promoPieces.add(new Rook(9, 2, currentColor));
@@ -376,7 +399,7 @@ public class GameManager {
     // Find and return the king of the specified color
     private Piece getKing(int color) {
         for (Piece p : simPieces) {
-            if ("KING".equals(p.type) && p.color == color) {
+            if (p.type == PieceType.KING && p.color == color) {
                 return p;
             }
         }
@@ -417,23 +440,23 @@ public class GameManager {
         int rowDiff = Math.abs(targetRow - piece.row);
 
         switch (piece.type) {
-            case "PAWN":
+            case PAWN:
                 int direction = piece.color == WHITE ? -1 : 1;
+                if (boardFlipped) {
+                    direction = -direction;
+                }
                 return rowDiff == 1 && targetRow == piece.row + direction && colDiff == 1;
-            case "KNIGHT":
+            case KNIGHT:
                 return (colDiff == 1 && rowDiff == 2) || (colDiff == 2 && rowDiff == 1);
-            case "BISHOP":
-                // Check if there are pieces blocking a path
+            case BISHOP:
                 return colDiff == rowDiff && isPathClear(piece, targetCol, targetRow);
-            case "ROOK":
-                // Check if there are pieces blocking a path
+            case ROOK:
                 return (targetCol == piece.col || targetRow == piece.row) && isPathClear(piece, targetCol, targetRow);
-            case "QUEEN":
+            case QUEEN:
                 boolean straight = targetCol == piece.col || targetRow == piece.row;
                 boolean diagonal = colDiff == rowDiff;
-                // Check if there are pieces blocking a path
                 return (straight || diagonal) && isPathClear(piece, targetCol, targetRow);
-            case "KING":
+            case KING:
                 return colDiff <= 1 && rowDiff <= 1;
             default:
                 return false;
@@ -591,6 +614,58 @@ public class GameManager {
         return color == WHITE ? BLACK : WHITE;
     }
 
+    // Toggle the board flip state and flip all piece coordinates
+    public void toggleFlipBoard() {
+        boardFlipped = !boardFlipped;
+        isBoardFlipped = boardFlipped;
+        
+        // Flip all piece coordinates in the game
+        for (Piece p : simPieces) {
+            p.col = 7 - p.col;
+            p.row = 7 - p.row;
+            p.preCol = 7 - p.preCol;
+            p.preRow = 7 - p.preRow;
+            p.x = p.getX(p.col);
+            p.y = p.getY(p.row);
+        }
+        
+        // Flip legal move squares
+        for (Point square : legalMoveSquares) {
+            square.x = 7 - square.x;
+            square.y = 7 - square.y;
+        }
+        
+        // Note: Move history (moves) is not flipped - it records moves in the original coordinate system
+        
+        // Flip castling piece if it exists
+        if (castlingP != null) {
+            castlingP.col = 7 - castlingP.col;
+            castlingP.row = 7 - castlingP.row;
+        }
+    }
+
+    // Get the flipped coordinate for a given board position
+    public int getFlippedCol(int col) {
+        return 7 - col;
+    }
+
+    public int getFlippedRow(int row) {
+        return 7 - row;
+    }
+
+    public boolean isBoardFlipped() {
+        return boardFlipped;
+    }
+
+    // Convert mouse coordinates to board coordinates
+    private int getMouseColOnBoard() {
+        return mouse.x / Board.SIZE;
+    }
+
+    private int getMouseRowOnBoard() {
+        return mouse.y / Board.SIZE;
+    }
+
     public String generateSAN(Piece piece, int targetCol, int targetRow, boolean isCapture, boolean isCastling) {
         if (isCastling) {
             return targetCol > piece.preCol ? "O-O" : "O-O-O";
@@ -598,7 +673,7 @@ public class GameManager {
 
         StringBuilder sb = new StringBuilder();
 
-        if ("PAWN".equals(piece.type)) {
+        if (piece.type == PieceType.PAWN) {
             if (isCapture) {
                 sb.append((char) ('a' + piece.preCol));
                 sb.append('x');
@@ -606,14 +681,7 @@ public class GameManager {
             sb.append((char) ('a' + targetCol));
             sb.append(8 - targetRow);
         } else {
-            String prefix = "";
-            switch (piece.type) {
-                case "KNIGHT": prefix = "N"; break;
-                case "BISHOP": prefix = "B"; break;
-                case "ROOK":   prefix = "R"; break;
-                case "QUEEN":  prefix = "Q"; break;
-                case "KING":   prefix = "K"; break;
-            }
+            String prefix = piece.type.getNotation();
             sb.append(prefix);
 
             boolean shareFile = false;
@@ -621,7 +689,7 @@ public class GameManager {
             boolean anotherCanMove = false;
 
             for (Piece p : pieces) {
-                if (p != piece && p.color == piece.color && p.type.equals(piece.type)) {
+                if (p != piece && p.color == piece.color && p.type == piece.type) {
                     if (canLegallyMove(p, targetCol, targetRow)) {
                         anotherCanMove = true;
                         if (p.col == piece.preCol) {
@@ -692,21 +760,31 @@ public class GameManager {
         return list;
     }
 
-    public int getPieceValue(String type) {
-        switch (type) {
-            case "PAWN":   return 1;
-            case "KNIGHT": return 3;
-            case "BISHOP": return 3;
-            case "ROOK":   return 5;
-            case "QUEEN":  return 9;
-            default:       return 0;
-        }
+    public int getPieceValue(PieceType type) {
+        return type.getValue();
     }
 
     public ArrayList<Piece> getSortedCapturedPieces(int pieceColor) {
-        ArrayList<Piece> list = getCapturedPieces(pieceColor);
-        list.sort((p1, p2) -> Integer.compare(getPieceValue(p1.type), getPieceValue(p2.type)));
-        return list;
+        // Invalidate cache if captured pieces changed
+        if (cachedCapturedCount != capturedPieces.size()) {
+            cachedCapturedCount = capturedPieces.size();
+            cachedSortedWhite = null;
+            cachedSortedBlack = null;
+        }
+        
+        if (pieceColor == WHITE) {
+            if (cachedSortedWhite == null) {
+                cachedSortedWhite = getCapturedPieces(WHITE);
+                cachedSortedWhite.sort((p1, p2) -> Integer.compare(getPieceValue(p1.type), getPieceValue(p2.type)));
+            }
+            return cachedSortedWhite;
+        } else {
+            if (cachedSortedBlack == null) {
+                cachedSortedBlack = getCapturedPieces(BLACK);
+                cachedSortedBlack.sort((p1, p2) -> Integer.compare(getPieceValue(p1.type), getPieceValue(p2.type)));
+            }
+            return cachedSortedBlack;
+        }
     }
 
     public int getCapturedValueByWhite() {
