@@ -5,8 +5,8 @@ public class Rook extends Piece {
     // Constructor for Rook piece
     public Rook(int col, int row, int color) {
         super(col, row, color);
-        this.type = "ROOK";
-        this.img = getImage("/resources/" + (color == 0 ? "white" : "black") + "-rook");
+        this.type = PieceType.ROOK;
+        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-rook");
     }
     // Check if the rook can move to the target position
     @Override

@@ -1,11 +1,13 @@
 package piece;
 
+import view.GameManager;
+
 public class Pawn extends Piece {
     // Constructor for Pawn piece
     public Pawn(int col, int row, int color) {
         super(col, row, color);
-        this.type = "PAWN";
-        this.img = getImage("/resources/" + (color == 0 ? "white" : "black") + "-pawn");
+        this.type = PieceType.PAWN;
+        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-pawn");
     }
     // Check if the pawn can move to the target position
 
@@ -16,6 +18,9 @@ public class Pawn extends Piece {
         }
 
         int direction = color == 0 ? -1 : 1;
+        if (GameManager.isBoardFlipped) {
+            direction = -direction;
+        }
         hittingP = getHittingP(targetCol, targetRow);
 
         if (targetCol == preCol && targetRow == preRow + direction && hittingP == null) {
@@ -34,7 +39,7 @@ public class Pawn extends Piece {
             Piece sidePawn = getPieceAt(targetCol, preRow);
             if (sidePawn != null
                     && sidePawn.color != color
-                    && "PAWN".equals(sidePawn.type)
+                    && sidePawn.type == PieceType.PAWN
                     && sidePawn.twoStepped) {
                 hittingP = sidePawn;
                 return true;

@@ -1,14 +1,13 @@
 package piece;
 
-import view.GamePanel;
 import view.GameManager;
 
 public class King extends Piece {
     // Constructor for King piece
     public King(int col, int row, int color) {
         super(col, row, color);
-        this.type = "KING";
-        this.img = getImage("/resources/" + (color == 0 ? "white" : "black") + "-king");
+        this.type = PieceType.KING;
+        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-king");
     }
 
     @Override
@@ -36,7 +35,7 @@ public class King extends Piece {
         int direction = targetCol > preCol ? 1 : -1;
         Piece rook = getPieceAt(rookCol, preRow);
 
-        if (rook == null || rook.color != color || !"ROOK".equals(rook.type) || rook.moved) {
+        if (rook == null || rook.color != color || rook.type != PieceType.ROOK || rook.moved) {
             return false;
         }
 
