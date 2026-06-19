@@ -42,6 +42,8 @@ public class GameManager {
     public boolean gameOver;
     public boolean stalemate;
     public boolean boardFlipped = false;
+    public boolean whiteResign = false;
+    public boolean blackResign = false;
 
     private final Mouse mouse;
     
@@ -354,7 +356,7 @@ public class GameManager {
 
         scrollToBottom();
 
-        if (checkingP != null && !opponentHasLegalMove) {
+        if ((checkingP != null && !opponentHasLegalMove) || whiteResign || blackResign) {
             gameOver = true;
             activeP = null;
             legalMoveSquares.clear();
@@ -366,6 +368,17 @@ public class GameManager {
             // Switch turns between white and black
             changePlayer();
         }
+    }
+
+    public void resign(int color) {
+        if (color == 0) {
+            whiteResign = true;
+        } else {
+            blackResign = true;
+        }
+        gameOver = true;
+        activeP = null;
+        legalMoveSquares.clear();
     }
 
     // Move the rook when castling occurs
@@ -490,6 +503,7 @@ public class GameManager {
         }
         return null;
     }
+
 
     // Check if castling passes through a square under attack
     private boolean isCastlingThroughCheck(Piece king) {
