@@ -32,12 +32,6 @@ public class TitlePanel extends JPanel {
             System.out.println("Failed to load icon image");
         }  
 
-        try {
-            iconImage = ImageIO.read(getClass().getResource("/resources/title_background.jpg"));
-        } catch (IOException e) {
-            System.out.println("Failed to load icon image");
-        }  
-
 
         // Create title
         JLabel titleLabel = new JLabel("JChess");
