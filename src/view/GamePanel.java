@@ -53,8 +53,11 @@ public class GamePanel extends JPanel {
     private final GameManager gm;
     private BufferedImage background;
     private BufferedImage flipBoardIcon;
+    private BufferedImage ResignIcon;
     private boolean mousePressedLastFrame = false;
     private java.awt.Rectangle flipButtonRect = new java.awt.Rectangle();
+    private java.awt.Rectangle resignWhiteRect = new java.awt.Rectangle();
+    private java.awt.Rectangle resignBlackRect = new java.awt.Rectangle();
 
     // Constructor
     public GamePanel() {
@@ -67,7 +70,7 @@ public class GamePanel extends JPanel {
         gm = new GameManager(mouse);
         background = loadBackground();
         flipBoardIcon = loadFlipBoardIcon();
-
+        ResignIcon = loadResignIcon();
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
         addMouseWheelListener(e -> {
@@ -88,9 +91,21 @@ public class GamePanel extends JPanel {
             boolean mouseJustReleased = !mouse.pressed && mousePressedLastFrame;
             mousePressedLastFrame = mouse.pressed;
 
-            // Check for flip button click
+            // Check for button clicks
             if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
                 gm.toggleFlipBoard();
+            } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                // drawResignRed(resignWhiteRect.x + resignWhiteRect.width / 2, resignWhiteRect.y + resignWhiteRect.height / 2);
+                // if (mouseJustReleased && mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                //     gm.resign(1);
+                // }
+                gm.resign(0);
+            } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                // drawResignRed(resignBlackRect.x + resignBlackRect.width / 2, resignBlackRect.y + resignBlackRect.height / 2);
+                // if (mouseJustReleased && mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                //     gm.resign(2);
+                // }
+                gm.resign(1);
             } else {
                 // Main game loop update method
                 gm.update(mouseJustPressed, mouseJustReleased);
@@ -129,6 +144,20 @@ public class GamePanel extends JPanel {
             return scaleImage(ImageIO.read(in), 14, 14);
         } catch (Exception e) {
             System.err.println("Failed to load image: /resources/icons/flip_board.png");
+            return null;
+        }
+    }
+
+    // Helper method for loading the resign icon
+    private BufferedImage loadResignIcon() {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/icons/resign.png")) {
+            if (in == null) {
+                System.err.println("Failed to load image: /resources/icons/resign.png");
+                return null;
+            }
+            return scaleImage(ImageIO.read(in), 56, 56);
+        } catch (Exception e) {
+            System.err.println("Failed to load image: /resources/icons/resign.png");
             return null;
         }
     }
@@ -352,13 +381,27 @@ public class GamePanel extends JPanel {
     // Display the game result when the game ends
     private void drawGameResult(Graphics2D g2) {
         if (gm.gameOver) {
-            String s = (gm.currentColor == GameManager.WHITE) ? "White Wins" : "Black Wins";
-            g2.setFont(new Font("Roboto", Font.BOLD, 26));
-            g2.setColor(new Color(255, 88, 88));
-            drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, 480);
-            g2.setFont(new Font("Roboto", Font.BOLD, 30));
-            g2.setColor(new Color(126, 255, 140));
-            drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, 520);
+            if (gm.whiteResign) {
+                g2.setFont(new Font("Roboto", Font.BOLD, 30));
+                g2.setColor(new Color(126, 255, 140));
+                drawCenteredString(g2, "White Wins", SIDE_PANEL_CENTER_X, 500);
+                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, 530);
+                return;
+            } else if (gm.blackResign) {
+                g2.setFont(new Font("Roboto", Font.BOLD, 30));
+                g2.setColor(new Color(126, 255, 140));
+                drawCenteredString(g2, "Black Wins", SIDE_PANEL_CENTER_X, 500);
+                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, 530);
+                return;
+            } else{
+                String s = (gm.currentColor == GameManager.WHITE) ? "White Wins" : "Black Wins";
+                g2.setFont(new Font("Roboto", Font.BOLD, 26));
+                g2.setColor(new Color(255, 88, 88));
+                drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, 480);
+                g2.setFont(new Font("Roboto", Font.BOLD, 30));
+                g2.setColor(new Color(126, 255, 140));
+                drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, 520);
+            }
         }
 
         if (gm.stalemate) {
@@ -366,6 +409,12 @@ public class GamePanel extends JPanel {
             g2.setColor(Color.lightGray);
             drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, 500);
         }
+    }
+
+    private void drawResignRed(int x, int y) {
+        Graphics2D g2 = (Graphics2D) getGraphics();
+        g2.setColor(new Color(255, 80, 80, 180));
+        g2.fillOval(x - 15, y - 15, 30, 30);
     }
 
     private void drawMoveLog(Graphics2D g2) {
@@ -392,17 +441,44 @@ public class GamePanel extends JPanel {
         int buttonY = boxY + 5;
         flipButtonRect.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
 
+        // Resign buttons for both players
+        int resignButtonWidth = 30;
+        int resignButtonHeight = 30;
+        int resignButtonX = boxX + boxWidth - resignButtonWidth - 10;
+        int resignBlackY = boxY + boxHeight - resignButtonHeight - 310;
+        int resignWhiteY = boxY + boxHeight - resignButtonHeight + 40;
+        resignBlackRect.setBounds(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight);
+        resignWhiteRect.setBounds(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight);
+
         g2.setColor(new Color(60, 120, 180, 200));
         g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
         g2.setStroke(new java.awt.BasicStroke(1.5f));
         g2.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
 
+        // Draw resign buttons
+        g2.drawRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
+        g2.drawRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
+        g2.setColor(new Color(128, 128, 128));
+        g2.fillRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
+        g2.fillRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
+
+
         // Draw flip icon
         if (flipBoardIcon != null) {
             g2.drawImage(flipBoardIcon, buttonX + (buttonWidth - flipBoardIcon.getWidth()) / 2, 
                         buttonY + (buttonHeight - flipBoardIcon.getHeight()) / 2, null);
 
+        }
+
+        if (ResignIcon != null) {
+            g2.drawImage(ResignIcon, resignButtonX + (resignButtonWidth - ResignIcon.getWidth()) / 2, 
+                        resignWhiteY + (resignButtonHeight - ResignIcon.getHeight()) / 2, null);
+        }
+
+         if (ResignIcon != null) {
+            g2.drawImage(ResignIcon, resignButtonX + (resignButtonWidth - ResignIcon.getWidth()) / 2, 
+                        resignBlackY + (resignButtonHeight - ResignIcon.getHeight()) / 2, null);
         }
 
         // Underline header
