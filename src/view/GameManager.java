@@ -31,6 +31,17 @@ public class GameManager {
     public ArrayList<Piece> capturedPieces = new ArrayList<>();
     public int scrollStartLine = 0;
 
+    private final ArrayList<ArrayList<Piece>> piecesHistory = new ArrayList<>();
+    private final ArrayList<ArrayList<Piece>> simPiecesHistory = new ArrayList<>();
+    private final ArrayList<ArrayList<Piece>> capturedPiecesHistory = new ArrayList<>();
+    private final ArrayList<Integer> currentColorHistory = new ArrayList<>();
+    private final ArrayList<Boolean> gameOverHistory = new ArrayList<>();
+    private final ArrayList<Boolean> stalemateHistory = new ArrayList<>();
+    private final ArrayList<Boolean> whiteResignHistory = new ArrayList<>();
+    private final ArrayList<Boolean> blackResignHistory = new ArrayList<>();
+    private final ArrayList<Boolean> boardFlippedHistory = new ArrayList<>();
+    private ArrayList<Piece> preMoveSnapshot; // Snapshot for undoing to pre-move state, separate from piecesHistory which snapshots after move is committed
+
     public static Piece castlingP;
     public Piece activeP;
     public Piece checkingP;
@@ -98,6 +109,82 @@ public class GameManager {
         tgt.addAll(src);
     }
 
+    private ArrayList<Piece> copyPieceList(ArrayList<Piece> src) {
+        ArrayList<Piece> clone = new ArrayList<>();
+        for (Piece p : src) {
+            clone.add(p.copy());
+        }
+        return clone;
+    }
+
+    // Capture the board state right before the currently selected piece (and
+    // any castling rook) starts moving, so undo can restore to this exact
+    // pre-move position later. Must be called at selection time, not at
+    // commit time, since pieces/simPieces share the same Piece instances.
+    private void capturePreMoveSnapshot() {
+        preMoveSnapshot = copyPieceList(pieces);
+    }
+
+    private void saveHistorySnapshot() {
+        piecesHistory.add(preMoveSnapshot != null ? preMoveSnapshot : copyPieceList(pieces));
+        simPiecesHistory.add(copyPieceList(pieces));
+        capturedPiecesHistory.add(copyPieceList(capturedPieces));
+        currentColorHistory.add(currentColor);
+        gameOverHistory.add(gameOver);
+        stalemateHistory.add(stalemate);
+        whiteResignHistory.add(whiteResign);
+        blackResignHistory.add(blackResign);
+        boardFlippedHistory.add(boardFlipped);
+        preMoveSnapshot = null;
+    }
+
+    public boolean canUndo() {
+        return !moves.isEmpty() && !piecesHistory.isEmpty();
+    }
+
+    public void undoLastMove() {
+        if (!canUndo()) {
+            return;
+        }
+
+        int lastIndex = piecesHistory.size() - 1;
+        pieces = piecesHistory.remove(lastIndex);
+        copyPieces(pieces, simPieces);
+        capturedPieces = capturedPiecesHistory.remove(lastIndex);
+        currentColor = currentColorHistory.remove(lastIndex);
+        gameOver = gameOverHistory.remove(lastIndex);
+        stalemate = stalemateHistory.remove(lastIndex);
+        whiteResign = whiteResignHistory.remove(lastIndex);
+        blackResign = blackResignHistory.remove(lastIndex);
+        boardFlipped = boardFlippedHistory.remove(lastIndex);
+        isBoardFlipped = boardFlipped;
+
+        if (!simPiecesHistory.isEmpty()) {
+            simPiecesHistory.remove(simPiecesHistory.size() - 1);
+        }
+
+        if (!moves.isEmpty()) {
+            moves.remove(moves.size() - 1);
+        }
+
+        activeP = null;
+        legalMoveSquares.clear();
+        promotion = false;
+        promoPieces.clear();
+        castlingP = null;
+        checkingP = null;
+        preMoveSnapshot = null;
+        cachedSortedWhite = null;
+        cachedSortedBlack = null;
+        cachedCapturedCount = capturedPieces.size();
+
+        if (!gameOver && !stalemate) {
+            checkingP = findCheckingPiece(getOppositeColor(currentColor));
+        }
+
+        scrollToBottom();
+    }
+
     // Main game loop update method
     public void update(boolean mouseJustPressed, boolean mouseJustReleased) {
         if (promotion) {
@@ -131,6 +218,9 @@ public class GameManager {
                         activeP = clickedPiece;
                         canMove = false;
                         validSquare = false;
+                        // Re-snapshot now that a different piece is selected,
+                        // since the board is back in a settled (pre-drag) state
+                        capturePreMoveSnapshot();
                         // Update all legal move highlights for the selected piece
                         refreshLegalMoveSquares();
                     } else {
@@ -176,6 +266,9 @@ public class GameManager {
                 activeP = p;
                 canMove = false;
                 validSquare = false;
+                // Capture the board state before this piece (or a castling
+                // rook) gets mutated by simulate() during the drag
+                capturePreMoveSnapshot();
                 // Update all legal move highlights for the selected piece
                 refreshLegalMoveSquares();
                 return;
@@ -204,6 +297,7 @@ public class GameManager {
             toRow = 7 - toRow;
         }
 
+        saveHistorySnapshot();
         copyPieces(savedSimPieces, simPieces);
 
         copyPieces(simPieces, pieces);

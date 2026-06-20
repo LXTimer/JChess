@@ -23,6 +23,7 @@ public class TitlePanel extends JPanel {
         this.gamePanel = gamePanel;
         setLayout(null);
         setBackground(new Color(40, 40, 40));
+        setOpaque(false);
         setPreferredSize(new Dimension(800, 800));
 
         // Load background image
@@ -84,11 +85,13 @@ public class TitlePanel extends JPanel {
 
     @Override
     public void paintComponent(Graphics g) {
-        super.paintComponent(g);
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setColor(getBackground());
+        g2.fillRect(0, 0, getWidth(), getHeight());
         if (iconImage != null) {
-                g.drawImage(iconImage, 350, 40, 200, 200, null);
+            g2.drawImage(iconImage, 350, 40, 200, 200, null);
         }
-
+        g2.dispose();
     }
 
     @Override
