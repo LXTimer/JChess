@@ -61,6 +61,10 @@ public class GamePanel extends JPanel {
     private java.awt.Rectangle resignBlackRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoBlackRect = new java.awt.Rectangle();
+    private java.awt.Rectangle navStartRect  = new java.awt.Rectangle(); // |<  go to start
+    private java.awt.Rectangle navPrevRect   = new java.awt.Rectangle(); // <   go back one move
+    private java.awt.Rectangle navNextRect   = new java.awt.Rectangle(); // >   go forward one move
+    private java.awt.Rectangle navEndRect    = new java.awt.Rectangle(); // >|  go to end (live)
 
     // Constructor
     public GamePanel() {
@@ -102,17 +106,21 @@ public class GamePanel extends JPanel {
                 gm.undoLastMove();
             } else if (mouseJustPressed && undoBlackRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
                 gm.undoLastMove();
+            } else if (mouseJustPressed && navStartRect.contains(mouse.x, mouse.y)) {
+                // |<  jump to the starting position
+                gm.viewStart();
+            } else if (mouseJustPressed && navPrevRect.contains(mouse.x, mouse.y)) {
+                // <   step back one move
+                gm.viewPrevious();
+            } else if (mouseJustPressed && navNextRect.contains(mouse.x, mouse.y)) {
+                // >   step forward one move
+                gm.viewNext();
+            } else if (mouseJustPressed && navEndRect.contains(mouse.x, mouse.y)) {
+                // >|  jump to the live / current position
+                gm.viewEnd();
             } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                // drawResignRed(resignWhiteRect.x + resignWhiteRect.width / 2, resignWhiteRect.y + resignWhiteRect.height / 2);
-                // if (mouseJustReleased && mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                //     gm.resign(1);
-                // }
                 gm.resign(0);
             } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                // drawResignRed(resignBlackRect.x + resignButtonHeight / 2, resignBlackRect.y + resignBlackRect.height / 2);
-                // if (mouseJustReleased && mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                //     gm.resign(2);
-                // }
                 gm.resign(1);
             } else {
                 // Main game loop update method
@@ -242,16 +250,17 @@ public class GamePanel extends JPanel {
 
         board.draw(g2);
 
-        // Draw last move highlight on the board
-        if (!gm.moves.isEmpty()) {
-            MoveRecord lastMove = gm.moves.get(gm.moves.size() - 1);
+        // Draw highlighted move on the board depending on current view (live or history)
+        int viewIndex = gm.getViewMoveIndex();
+        int highlightMoveIndex = (viewIndex == -1) ? (gm.moves.isEmpty() ? -1 : gm.moves.size() - 1) : (viewIndex - 1);
+        if (highlightMoveIndex >= 0 && highlightMoveIndex < gm.moves.size()) {
+            MoveRecord lastMove = gm.moves.get(highlightMoveIndex);
             int fromCol = lastMove.fromCol;
             int fromRow = lastMove.fromRow;
             int toCol = lastMove.toCol;
             int toRow = lastMove.toRow;
 
-            // Flip coordinates if board is flipped (since move history is in original
-            // coordinates)
+            // Flip coordinates if board is flipped (since move history is in original coordinates)
             if (gm.isBoardFlipped()) {
                 fromCol = 7 - fromCol;
                 fromRow = 7 - fromRow;
@@ -273,8 +282,8 @@ public class GamePanel extends JPanel {
         // Highlight the king when it is in check
         drawCheckedKingGlow(g2);
 
-        // Draw all pieces currently on the board
-        for (Piece p : new ArrayList<>(gm.simPieces)) {
+        // Draw all pieces currently on the board (live or historical view)
+        for (Piece p : new ArrayList<>(gm.getDisplayPieces())) {
             drawPieceWithFlip(g2, p);
         }
 
@@ -329,7 +338,7 @@ public class GamePanel extends JPanel {
         if (gm.checkingP == null)
             return;
         Piece king = null;
-        for (Piece p : gm.simPieces) {
+        for (Piece p : gm.getDisplayPieces()) {
             if (p.type == PieceType.KING && p.color == gm.getOppositeColor(gm.checkingP.color)) {
                 king = p;
                 break;
@@ -406,13 +415,13 @@ public class GamePanel extends JPanel {
             if (gm.whiteResign) {
                 g2.setFont(new Font("Roboto", Font.BOLD, 30));
                 g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, "White Wins", SIDE_PANEL_CENTER_X, 500);
+                drawCenteredString(g2, "Black Wins", SIDE_PANEL_CENTER_X, 500);
                 drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, 530);
                 return;
             } else if (gm.blackResign) {
                 g2.setFont(new Font("Roboto", Font.BOLD, 30));
                 g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, "Black Wins", SIDE_PANEL_CENTER_X, 500);
+                drawCenteredString(g2, "White Wins", SIDE_PANEL_CENTER_X, 500);
                 drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, 530);
                 return;
             } else{
@@ -439,14 +448,32 @@ public class GamePanel extends JPanel {
         g2.fillOval(x - 15, y - 15, 30, 30);
     }
 
+    private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction) {
+        int[] xs = new int[3];
+        int[] ys = {y , y - 5, y + 5};
+        if (direction.equals("left")){
+            xs = new int[]{x - 5, x + 5, x + 5};
+        } else if (direction.equals("right")){
+            xs = new int[]{x + 5, x - 5, x - 5};
+        }
+
+        boolean filled = true;
+        Color color = new Color(255, 255, 255, 200);
+        g2.setColor(color);
+        if (filled) {
+            g2.fillPolygon(xs, ys, 3);
+        } else {
+            g2.drawPolygon(xs, ys, 3);
+        }
+    }
+
     private void drawMoveLog(Graphics2D g2) {
         int boxX = SIDE_PANEL_X + 16;
         int boxY = 140;
         int boxWidth = SIDE_PANEL_WIDTH - 32;
         int boxHeight = 300;
-
         // Draw the background box for the log
-        g2.setColor(new Color(10, 12, 16, 180));
+        g2.setColor(new Color(10, 12, 16, 120));
         g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
         g2.setColor(new Color(255, 255, 255, 30));
         g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
@@ -477,12 +504,36 @@ public class GamePanel extends JPanel {
         undoWhiteRect.setBounds(undoButtonX, resignWhiteY, undoButtonWidth, resignButtonHeight);
         undoBlackRect.setBounds(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight);
 
+        // Navigation buttons for move log:
+        //   slot 1 (navButtonX1) = |<  NavStart  (double-left)
+        //   slot 2 (navButtonX2) = <   NavPrev   (single-left)
+        //   slot 3 (navButtonX3) = >   NavNext   (single-right)
+        //   slot 4 (navButtonX4) = >|  NavEnd    (double-right)
+        int navButtonHeight = boxY + 54 - (boxY + 32);
+        int navButtonWidth = (boxX + boxWidth - 10 - (boxX + 32)) / 4 + 5;
+        int navButtonX1 = boxX + 10;
+        int navButtonX2 = boxX + 10 + navButtonWidth;
+        int navButtonX3 = boxX + 10 + 2 * navButtonWidth;
+        int navButtonX4 = boxX + 10 + 3 * navButtonWidth;
+        int navButtonY = boxY + 32;
+
+        // Assign rects in the correct semantic order
+        navStartRect.setBounds(navButtonX1, navButtonY, navButtonWidth, navButtonHeight); // |<
+        navPrevRect .setBounds(navButtonX2, navButtonY, navButtonWidth, navButtonHeight); // <
+        navNextRect .setBounds(navButtonX3, navButtonY, navButtonWidth, navButtonHeight); // >
+        navEndRect  .setBounds(navButtonX4, navButtonY, navButtonWidth, navButtonHeight); // >|
+
+        // Check hover states for buttons
         boolean canUndo = gm.canUndo();
         boolean hoverFlip = flipButtonRect.contains(mouse.x, mouse.y);
         boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
         boolean hoverResignWhite = resignWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverResignBlack = resignBlackRect.contains(mouse.x, mouse.y);
+        boolean hoverNavStart = navStartRect.contains(mouse.x, mouse.y);
+        boolean hoverNavPrev  = navPrevRect.contains(mouse.x, mouse.y);
+        boolean hoverNavNext  = navNextRect.contains(mouse.x, mouse.y);
+        boolean hoverNavEnd   = navEndRect.contains(mouse.x, mouse.y);
 
         // Draw flip button
         g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 255, 200));
@@ -491,11 +542,14 @@ public class GamePanel extends JPanel {
         g2.setStroke(new java.awt.BasicStroke(1.5f));
         g2.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 1, 1);
 
+        Color navHoverColor = new Color(120, 210, 120, 220);
+        Color navBaseColor = new Color(0, 0, 0, 200);
+
         // Draw undo buttons
-        Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(80, 80, 80, 200);
-        g2.setColor(hoverUndoWhite ? new Color(120, 210, 120, 220) : undoBase);
+        Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(80, 80, 80, 180);
+        g2.setColor(hoverUndoWhite ? navHoverColor : undoBase);
         g2.fillRoundRect(undoButtonX, resignWhiteY, undoButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(hoverUndoBlack ? new Color(120, 210, 120, 220) : undoBase);
+        g2.setColor(hoverUndoBlack ? navHoverColor : undoBase);
         g2.fillRoundRect(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight, 4, 4);
 
         // Draw undo icon
@@ -512,14 +566,13 @@ public class GamePanel extends JPanel {
         }
 
         // Draw resign buttons
-        g2.setColor(hoverResignWhite ? new Color(220, 80, 80, 220) : new Color(128, 128, 128));
+        g2.setColor(hoverResignWhite ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
         g2.fillRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(hoverResignBlack ? new Color(220, 80, 80, 220) : new Color(128, 128, 128));
+        g2.setColor(hoverResignBlack ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
         g2.fillRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
         g2.drawRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
         g2.drawRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
-
 
         // Draw flip icon
         if (flipBoardIcon != null) {
@@ -549,17 +602,39 @@ public class GamePanel extends JPanel {
         int rowStartY = boxY + 48;
         int rowHeight = 22;
 
-        g2.setFont(new Font("Roboto", Font.BOLD, 12));
-        g2.setColor(new Color(110, 120, 135));
-        g2.drawString("Move", col1X, rowStartY);
-        g2.drawString("White", col2X, rowStartY);
-        g2.drawString("Black", col3X, rowStartY);
+        // Draw navigation buttons and dividers
+        int dividerY1 = boxY + 32;
+        int dividerY2 = rowStartY + 6;
+        g2.setColor(navStartRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.fillRect(navButtonX1, navButtonY, navButtonWidth, navButtonHeight);
+        g2.setColor(navPrevRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.fillRect(navButtonX2, navButtonY, navButtonWidth, navButtonHeight);
+        g2.setColor(navNextRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.fillRect(navButtonX3, navButtonY, navButtonWidth, navButtonHeight);
+        g2.setColor(navEndRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.fillRect(navButtonX4, navButtonY, navButtonWidth, navButtonHeight);
+        g2.setColor(new Color(255, 255, 255, 40));
+        g2.drawLine(navButtonX2, dividerY1, navButtonX2, dividerY2);
+        g2.drawLine(navButtonX3, dividerY1, navButtonX3, dividerY2);
+        g2.drawLine(navButtonX4, dividerY1, navButtonX4, dividerY2);
+
+        // Draw nav triangles:
+        //   slot 1 = double-left  (|<  NavStart)
+        //   slot 2 = single-left  (<   NavPrev)
+        //   slot 3 = single-right (>   NavNext)
+        //   slot 4 = double-right (>|  NavEnd)
+        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "left");
+        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "left");
+        drawNaviTriangle(g2, navButtonX2 + navButtonWidth / 2,     navButtonY + navButtonHeight / 2, "left");
+        drawNaviTriangle(g2, navButtonX3 + navButtonWidth / 2,     navButtonY + navButtonHeight / 2, "right");
+        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "right");
+        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "right");
 
         // Divider under table headers
         g2.setColor(new Color(255, 255, 255, 15));
         g2.drawLine(boxX + 10, rowStartY + 6, boxX + boxWidth - 10, rowStartY + 6);
 
-        // Render moves
+        // Table headers: No., White, Black
         int startY = rowStartY + 22;
         int totalMoves = gm.moves.size();
         int totalPairs = (totalMoves + 1) / 2;
@@ -567,6 +642,7 @@ public class GamePanel extends JPanel {
 
         g2.setFont(new Font("Roboto", Font.PLAIN, 13));
 
+        int activeMoveIndex = (gm.getViewMoveIndex() == -1) ? (totalMoves - 1) : (gm.getViewMoveIndex() - 1);
         for (int i = 0; i < maxVisible; i++) {
             int pairIndex = gm.scrollStartLine + i;
             if (pairIndex >= totalPairs) {
@@ -583,7 +659,7 @@ public class GamePanel extends JPanel {
             int whiteMoveIndex = pairIndex * 2;
             if (whiteMoveIndex < totalMoves) {
                 MoveRecord whiteMove = gm.moves.get(whiteMoveIndex);
-                boolean isLastMove = (whiteMoveIndex == totalMoves - 1);
+                boolean isLastMove = (whiteMoveIndex == activeMoveIndex);
 
                 if (isLastMove) {
                     // Highlight last move in the log
@@ -600,7 +676,7 @@ public class GamePanel extends JPanel {
             int blackMoveIndex = pairIndex * 2 + 1;
             if (blackMoveIndex < totalMoves) {
                 MoveRecord blackMove = gm.moves.get(blackMoveIndex);
-                boolean isLastMove = (blackMoveIndex == totalMoves - 1);
+                boolean isLastMove = (blackMoveIndex == activeMoveIndex);
 
                 if (isLastMove) {
                     // Highlight last move in the log

@@ -22,7 +22,7 @@ public class TitlePanel extends JPanel {
     public TitlePanel(GamePanel gamePanel) {
         this.gamePanel = gamePanel;
         setLayout(null);
-        setBackground(new Color(40, 40, 40));
+        setBackground(new Color(70, 70, 70, 240));
         setOpaque(false);
         setPreferredSize(new Dimension(800, 800));
 

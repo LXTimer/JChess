@@ -178,6 +178,9 @@ public class GameManager {
         cachedSortedBlack = null;
         cachedCapturedCount = capturedPieces.size();
 
+        // Snap back to live view after undo
+        viewMoveIndex = -1;
+
         if (!gameOver && !stalemate) {
             checkingP = findCheckingPiece(getOppositeColor(currentColor));
         }
@@ -278,6 +281,9 @@ public class GameManager {
 
     // Finalize and commit a valid move
     private void commitMove() {
+        // Snap back to live view whenever a new move is made
+        viewMoveIndex = -1;
+
         ArrayList<Piece> savedSimPieces = new ArrayList<>(simPieces);
 
         boolean isCapture = activeP.hittingP != null;
@@ -602,7 +608,7 @@ public class GameManager {
 
     // Check if castling passes through a square under attack
     private boolean isCastlingThroughCheck(Piece king) {
-        if (king == null || !"KING".equals(king.type) || Math.abs(king.col - king.preCol) != 2) {
+        if (king == null || king.type != PieceType.KING || Math.abs(king.col - king.preCol) != 2) {
             return false;
         }
 
@@ -914,5 +920,179 @@ public class GameManager {
             }
         }
         return sum;
+    }
+
+    // viewMoveIndex: -1 means live/current view; otherwise number of moves to display (0..moves.size())
+    public int viewMoveIndex = -1;
+
+    // Navigation / viewing helpers
+    public void viewStart() {
+        viewMoveIndex = 0;
+    }
+
+    public void viewEnd() {
+        viewMoveIndex = -1;
+    }
+
+    public void viewNext() {
+        if (viewMoveIndex == -1) {
+            // Already at the live end, nothing to do
+            return;
+        }
+        if (viewMoveIndex < moves.size()) {
+            viewMoveIndex++;
+        }
+        // If we've reached the end of the move list, snap to live view
+        if (viewMoveIndex >= moves.size()) {
+            viewMoveIndex = -1;
+        }
+    }
+
+    public void viewPrevious() {
+        if (viewMoveIndex == -1) {
+            // Start from the last move and go back one
+            viewMoveIndex = moves.size() - 1;
+        } else if (viewMoveIndex > 0) {
+            viewMoveIndex--;
+        }
+    }
+
+    public int getViewMoveIndex() {
+        return viewMoveIndex;
+    }
+
+    // Return the pieces that should be used for rendering based on the current view index
+    public ArrayList<Piece> getDisplayPieces() {
+        if (viewMoveIndex == -1) {
+            return simPieces;
+        }
+        return getBoardAtMoveCount(viewMoveIndex);
+    }
+
+    // Build a fresh board for display after applying `moveCount` moves (0..moves.size())
+    private ArrayList<Piece> getBoardAtMoveCount(int moveCount) {
+        // Create initial position
+        ArrayList<Piece> board = new ArrayList<>();
+        for (int col = 0; col < 8; col++) {
+            board.add(new Pawn(col, 6, WHITE));
+            board.add(new Pawn(col, 1, BLACK));
+        }
+        int[] backRankCols = {0, 7, 1, 6, 2, 5, 3, 4};
+        for (int i = 0; i < backRankCols.length; i++) {
+            int col = backRankCols[i];
+            Piece whitePiece, blackPiece;
+            if      (i < 2) { whitePiece = new Rook(col, 7, WHITE);   blackPiece = new Rook(col, 0, BLACK); }
+            else if (i < 4) { whitePiece = new Knight(col, 7, WHITE); blackPiece = new Knight(col, 0, BLACK); }
+            else if (i < 6) { whitePiece = new Bishop(col, 7, WHITE); blackPiece = new Bishop(col, 0, BLACK); }
+            else if (i < 7) { whitePiece = new Queen(col, 7, WHITE);  blackPiece = new Queen(col, 0, BLACK); }
+            else            { whitePiece = new King(col, 7, WHITE);   blackPiece = new King(col, 0, BLACK); }
+            board.add(whitePiece);
+            board.add(blackPiece);
+        }
+
+        // If board is currently flipped, flip all starting positions
+        if (boardFlipped) {
+            for (Piece p : board) {
+                p.col = 7 - p.col;
+                p.row = 7 - p.row;
+                p.preCol = 7 - p.preCol;
+                p.preRow = 7 - p.preRow;
+                p.x = p.getX(p.col);
+                p.y = p.getY(p.row);
+            }
+        }
+
+        // Apply moves sequentially onto the board copy
+        int applyCount = Math.max(0, Math.min(moveCount, moves.size()));
+        for (int i = 0; i < applyCount; i++) {
+            applyMoveToBoard(board, moves.get(i));
+        }
+
+        return board;
+    }
+
+    // Apply a single MoveRecord to a mutable board list (modifies the list)
+    private void applyMoveToBoard(ArrayList<Piece> board, MoveRecord mr) {
+        // Move history is always stored in original (unflipped) coordinates,
+        // so we need to convert to display coordinates if the board is flipped
+        int fromCol = boardFlipped ? 7 - mr.fromCol : mr.fromCol;
+        int fromRow = boardFlipped ? 7 - mr.fromRow : mr.fromRow;
+        int toCol   = boardFlipped ? 7 - mr.toCol   : mr.toCol;
+        int toRow   = boardFlipped ? 7 - mr.toRow   : mr.toRow;
+
+        // Find moving piece by from coordinates and color (prefer matching type)
+        Piece mover = null;
+        for (Piece p : board) {
+            if (p.col == fromCol && p.row == fromRow && p.color == mr.color) {
+                if (p.type == mr.type) {
+                    mover = p;
+                    break;
+                }
+                if (mover == null) mover = p;
+            }
+        }
+        if (mover == null) {
+            return; // can't find piece, give up
+        }
+
+        // Handle capture: remove piece at destination or en-passant style
+        if (mr.isCapture) {
+            Piece captured = null;
+            for (Piece p : board) {
+                if (p.col == toCol && p.row == toRow && p.color != mr.color) {
+                    captured = p;
+                    break;
+                }
+            }
+            if (captured == null) {
+                // try en-passant style capture: piece on target column but at mover's fromRow
+                for (Piece p : board) {
+                    if (p.col == toCol && p.row == fromRow && p.color != mr.color && p.type == PieceType.PAWN) {
+                        captured = p;
+                        break;
+                    }
+                }
+            }
+            if (captured != null) {
+                board.remove(captured);
+            }
+        }
+
+        // Handle castling: move rook accordingly
+        if (mr.isCastling && mr.type == PieceType.KING) {
+            int rookFromCol = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? 7 : 0) : (mr.toCol > mr.fromCol ? 7 : 0);
+            int rookToCol   = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1)
+                                           : (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1);
+            for (Piece p : board) {
+                if (p.col == rookFromCol && p.row == fromRow && p.color == mr.color && p.type == PieceType.ROOK) {
+                    p.col = rookToCol;
+                    p.row = toRow;
+                    p.x = p.getX(p.col);
+                    p.y = p.getY(p.row);
+                    break;
+                }
+            }
+        }
+
+        // Move the piece
+        mover.col = toCol;
+        mover.row = toRow;
+        mover.x = mover.getX(mover.col);
+        mover.y = mover.getY(mover.row);
+        mover.moved = true;
+
+        // Handle promotion
+        if (mr.promotionType != null) {
+            // replace pawn with promoted piece
+            Piece promoted = null;
+            switch (mr.promotionType) {
+                case "ROOK":   promoted = new Rook(mover.col, mover.row, mover.color);   break;
+                case "KNIGHT": promoted = new Knight(mover.col, mover.row, mover.color); break;
+                case "BISHOP": promoted = new Bishop(mover.col, mover.row, mover.color); break;
+                default:       promoted = new Queen(mover.col, mover.row, mover.color);  break;
+            }
+            board.remove(mover);
+            board.add(promoted);
+        }
     }
 }

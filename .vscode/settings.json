@@ -1,3 +1,9 @@
 {
-    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m -Xlog:disable"
+    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m -Xlog:disable",
+    "chat.tools.terminal.autoApprove": {
+        "/^Get-ChildItem -Path src -Recurse -Filter \\*\\.java \\| ForEach-Object \\{ \\$_\\.FullName \\} \\| Set-Content sources\\.txt; cmd /c \"\\\\\"C:\\\\Program Files\\\\Java\\\\jdk-25\\\\bin\\\\javac\\.exe\\\\\" -d bin @sources\\.txt\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }
