@@ -57,7 +57,7 @@ public class Piece {
         return (y + Board.SIZE / 2) / Board.SIZE;
     }
 
-    private void updatePixelPosition() {
+    protected void updatePixelPosition() {
         this.x = getX(col);
         this.y = getY(row);
     }
@@ -189,6 +189,44 @@ public class Piece {
         row = state[1];
         x   = state[2];
         y   = state[3];
+    }
+
+    // Make a deep copy of this piece for undo history snapshots
+    public Piece copy() {
+        Piece clone;
+        switch (type) {
+            case PAWN:
+                clone = new Pawn(col, row, color);
+                break;
+            case KNIGHT:
+                clone = new Knight(col, row, color);
+                break;
+            case BISHOP:
+                clone = new Bishop(col, row, color);
+                break;
+            case ROOK:
+                clone = new Rook(col, row, color);
+                break;
+            case QUEEN:
+                clone = new Queen(col, row, color);
+                break;
+            case KING:
+                clone = new King(col, row, color);
+                break;
+            default:
+                clone = new Piece(col, row, color);
+                break;
+        }
+
+        clone.preCol = preCol;
+        clone.preRow = preRow;
+        clone.col = col;
+        clone.row = row;
+        clone.updatePixelPosition();
+        clone.hittingP = null;
+        clone.moved = moved;
+        clone.twoStepped = twoStepped;
+        return clone;
     }
 
     @Override

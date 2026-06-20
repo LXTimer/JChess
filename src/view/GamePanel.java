@@ -54,10 +54,13 @@ public class GamePanel extends JPanel {
     private BufferedImage background;
     private BufferedImage flipBoardIcon;
     private BufferedImage ResignIcon;
+    private BufferedImage undoIcon;
     private boolean mousePressedLastFrame = false;
     private java.awt.Rectangle flipButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle resignWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle resignBlackRect = new java.awt.Rectangle();
+    private java.awt.Rectangle undoWhiteRect = new java.awt.Rectangle();
+    private java.awt.Rectangle undoBlackRect = new java.awt.Rectangle();
 
     // Constructor
     public GamePanel() {
@@ -71,6 +74,7 @@ public class GamePanel extends JPanel {
         background = loadBackground();
         flipBoardIcon = loadFlipBoardIcon();
         ResignIcon = loadResignIcon();
+        undoIcon = loadUndoIcon();
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
         addMouseWheelListener(e -> {
@@ -94,6 +98,10 @@ public class GamePanel extends JPanel {
             // Check for button clicks
             if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
                 gm.toggleFlipBoard();
+            } else if (mouseJustPressed && undoWhiteRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
+                gm.undoLastMove();
+            } else if (mouseJustPressed && undoBlackRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
+                gm.undoLastMove();
             } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
                 // drawResignRed(resignWhiteRect.x + resignWhiteRect.width / 2, resignWhiteRect.y + resignWhiteRect.height / 2);
                 // if (mouseJustReleased && mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
@@ -101,7 +109,7 @@ public class GamePanel extends JPanel {
                 // }
                 gm.resign(0);
             } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                // drawResignRed(resignBlackRect.x + resignBlackRect.width / 2, resignBlackRect.y + resignBlackRect.height / 2);
+                // drawResignRed(resignBlackRect.x + resignButtonHeight / 2, resignBlackRect.y + resignBlackRect.height / 2);
                 // if (mouseJustReleased && mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
                 //     gm.resign(2);
                 // }
@@ -158,6 +166,20 @@ public class GamePanel extends JPanel {
             return scaleImage(ImageIO.read(in), 56, 56);
         } catch (Exception e) {
             System.err.println("Failed to load image: /resources/icons/resign.png");
+            return null;
+        }
+    }
+
+    // Helper method for loading the undo icon
+    private BufferedImage loadUndoIcon() {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/icons/undo.png")) {
+            if (in == null) {
+                System.err.println("Failed to load image: /resources/icons/undo.png");
+                return null;
+            }
+            return scaleImage(ImageIO.read(in), 20, 20);
+        } catch (Exception e) {
+            System.err.println("Failed to load image: /resources/icons/undo.png");
             return null;
         }
     }
@@ -445,23 +467,58 @@ public class GamePanel extends JPanel {
         int resignButtonWidth = 30;
         int resignButtonHeight = 30;
         int resignButtonX = boxX + boxWidth - resignButtonWidth - 10;
+        int undoButtonWidth = 30;
+        int buttonSpacing = 8;
+        int undoButtonX = resignButtonX - undoButtonWidth - buttonSpacing;
         int resignBlackY = boxY + boxHeight - resignButtonHeight - 310;
         int resignWhiteY = boxY + boxHeight - resignButtonHeight + 40;
-        resignBlackRect.setBounds(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight);
-        resignWhiteRect.setBounds(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight);
+        resignBlackRect.setBounds(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight);
+        resignWhiteRect.setBounds(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight);
+        undoWhiteRect.setBounds(undoButtonX, resignWhiteY, undoButtonWidth, resignButtonHeight);
+        undoBlackRect.setBounds(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight);
 
-        g2.setColor(new Color(60, 120, 180, 200));
+        boolean canUndo = gm.canUndo();
+        boolean hoverFlip = flipButtonRect.contains(mouse.x, mouse.y);
+        boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
+        boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
+        boolean hoverResignWhite = resignWhiteRect.contains(mouse.x, mouse.y);
+        boolean hoverResignBlack = resignBlackRect.contains(mouse.x, mouse.y);
+
+        // Draw flip button
+        g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 255, 200));
         g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
         g2.setStroke(new java.awt.BasicStroke(1.5f));
-        g2.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
+        g2.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 1, 1);
+
+        // Draw undo buttons
+        Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(80, 80, 80, 200);
+        g2.setColor(hoverUndoWhite ? new Color(120, 210, 120, 220) : undoBase);
+        g2.fillRoundRect(undoButtonX, resignWhiteY, undoButtonWidth, resignButtonHeight, 4, 4);
+        g2.setColor(hoverUndoBlack ? new Color(120, 210, 120, 220) : undoBase);
+        g2.fillRoundRect(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight, 4, 4);
+
+        // Draw undo icon
+        if (undoIcon != null) {
+            java.awt.Composite oldComposite = g2.getComposite();
+            if (!canUndo) {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
+            }
+            g2.drawImage(undoIcon, undoButtonX + (undoButtonWidth - undoIcon.getWidth()) / 2,
+                        resignWhiteY + (resignButtonHeight - undoIcon.getHeight()) / 2, null);
+            g2.drawImage(undoIcon, undoButtonX + (undoButtonWidth - undoIcon.getWidth()) / 2,
+                        resignBlackY + (resignButtonHeight - undoIcon.getHeight()) / 2, null);
+            g2.setComposite(oldComposite);
+        }
 
         // Draw resign buttons
+        g2.setColor(hoverResignWhite ? new Color(220, 80, 80, 220) : new Color(128, 128, 128));
+        g2.fillRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
+        g2.setColor(hoverResignBlack ? new Color(220, 80, 80, 220) : new Color(128, 128, 128));
+        g2.fillRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
+        g2.setColor(new Color(200, 200, 200));
         g2.drawRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
         g2.drawRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(new Color(128, 128, 128));
-        g2.fillRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.fillRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
 
 
         // Draw flip icon
