@@ -32,8 +32,12 @@ public class Piece {
     // Method to load piece images
     public BufferedImage getImage(String path) {
         try {
+            String resolvedPath = path;
+            if (path.startsWith("/resources/")) {
+                resolvedPath = "/com/jchess" + path;
+            }
             return ImageIO.read(
-                    Objects.requireNonNull(Piece.class.getResourceAsStream(path + ".png")));
+                    Objects.requireNonNull(Piece.class.getResourceAsStream(resolvedPath + ".png")));
         } catch (Exception e) {
             System.err.println("Failed to load image: " + path);
             return null;

@@ -137,7 +137,7 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading background images
     private BufferedImage loadBackground() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/background.jpg")) {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/background.jpg")) {
 
             if (in == null) {
                 System.err.println("Failed to load image: /resources/background.jpg");
@@ -154,7 +154,7 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading the flip board icon
     private BufferedImage loadFlipBoardIcon() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/icons/flip_board.png")) {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/icons/flip_board.png")) {
             if (in == null) {
                 System.err.println("Failed to load image: /resources/icons/flip_board.png");
                 return null;
@@ -168,7 +168,7 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading the resign icon
     private BufferedImage loadResignIcon() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/icons/resign.png")) {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/icons/resign.png")) {
             if (in == null) {
                 System.err.println("Failed to load image: /resources/icons/resign.png");
                 return null;
@@ -182,7 +182,7 @@ public class GamePanel extends JPanel {
 
     // Helper method for loading the undo icon
     private BufferedImage loadUndoIcon() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/resources/icons/undo.png")) {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/icons/undo.png")) {
             if (in == null) {
                 System.err.println("Failed to load image: /resources/icons/undo.png");
                 return null;
