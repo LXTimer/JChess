@@ -129,7 +129,7 @@ public class GamePanel extends JPanel {
 
             repaint();
         });
-        gameTimer.setCoalesce(true);
+        gameTimer.setCoalesce(false);
         gameTimer.start();
     }
 
@@ -324,13 +324,28 @@ public class GamePanel extends JPanel {
         double outerR = MOVE_DOT_OUTER_SIZE / 2.0;
         double innerR = MOVE_DOT_INNER_SIZE / 2.0;
 
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
-        g2.setColor(Color.white);
-        g2.setStroke(new BasicStroke(3f));
-        g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+        boolean hovered = mouse.x >= col * Board.SIZE && mouse.x < (col + 1) * Board.SIZE
+                       && mouse.y >= row * Board.SIZE && mouse.y < (row + 1) * Board.SIZE;
 
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
-        g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+        if (hovered) {
+            // Draw a brighter, more opaque highlight on hover
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.50f));
+            g2.setColor(new Color(255, 255, 255));
+            g2.setStroke(new BasicStroke(3f));
+            g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+            g2.setColor(new Color(255, 255, 255));
+            g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+        } else {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
+            g2.setColor(new Color(255, 255, 255, 180));
+            g2.setStroke(new BasicStroke(3f));
+            g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
+            g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+        }
     }
 
     // Highlight the king when it is in check
@@ -505,10 +520,6 @@ public class GamePanel extends JPanel {
         undoBlackRect.setBounds(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight);
 
         // Navigation buttons for move log:
-        //   slot 1 (navButtonX1) = |<  NavStart  (double-left)
-        //   slot 2 (navButtonX2) = <   NavPrev   (single-left)
-        //   slot 3 (navButtonX3) = >   NavNext   (single-right)
-        //   slot 4 (navButtonX4) = >|  NavEnd    (double-right)
         int navButtonHeight = boxY + 54 - (boxY + 32);
         int navButtonWidth = (boxX + boxWidth - 10 - (boxX + 32)) / 4 + 5;
         int navButtonX1 = boxX + 10;
@@ -536,11 +547,10 @@ public class GamePanel extends JPanel {
         boolean hoverNavEnd   = navEndRect.contains(mouse.x, mouse.y);
 
         // Draw flip button
-        g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 255, 200));
+        g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 220, 180));
         g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
         g2.setStroke(new java.awt.BasicStroke(1.5f));
-        g2.drawRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 1, 1);
 
         Color navHoverColor = new Color(120, 210, 120, 220);
         Color navBaseColor = new Color(0, 0, 0, 200);
@@ -571,8 +581,6 @@ public class GamePanel extends JPanel {
         g2.setColor(hoverResignBlack ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
         g2.fillRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
-        g2.drawRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.drawRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
 
         // Draw flip icon
         if (flipBoardIcon != null) {

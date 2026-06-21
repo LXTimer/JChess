@@ -1061,8 +1061,7 @@ public class GameManager {
         // Handle castling: move rook accordingly
         if (mr.isCastling && mr.type == PieceType.KING) {
             int rookFromCol = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? 7 : 0) : (mr.toCol > mr.fromCol ? 7 : 0);
-            int rookToCol   = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1)
-                                           : (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1);
+            int rookToCol   = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1): (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1);
             for (Piece p : board) {
                 if (p.col == rookFromCol && p.row == fromRow && p.color == mr.color && p.type == PieceType.ROOK) {
                     p.col = rookToCol;
