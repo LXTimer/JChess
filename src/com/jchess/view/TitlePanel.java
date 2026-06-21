@@ -28,7 +28,7 @@ public class TitlePanel extends JPanel {
 
         // Load background image
         try {
-            iconImage = ImageIO.read(getClass().getResource("/resources/icons/JChess.png"));
+            iconImage = ImageIO.read(getClass().getResource("/com/jchess/resources/icons/JChess.png"));
         } catch (IOException e) {
             System.out.println("Failed to load icon image");
         }  

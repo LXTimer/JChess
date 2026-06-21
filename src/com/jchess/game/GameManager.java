@@ -188,7 +188,7 @@ public class GameManager {
             if (isComplete) {
                 anim.piece.col = anim.endCol;
                 anim.piece.row = anim.endRow;
-                anim.piece.updatePixelPosition();
+                anim.piece.updatePosition();
                 completedAnimations.add(anim);
             } else {
                 anim.piece.x = anim.getAnimatedX();
