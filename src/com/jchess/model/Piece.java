@@ -1,7 +1,7 @@
-package piece;
+package com.jchess.model;
 
-import view.GameManager;
-import model.Board;
+import com.jchess.game.GameManager;
+import com.jchess.model.piece.*;
 
 import javax.imageio.ImageIO;
 import java.awt.*;

@@ -1,20 +1,15 @@
-package view;
+package com.jchess.game;
 
-import controller.Mouse;
+import com.jchess.input.Mouse;
+import com.jchess.model.Board;
+import com.jchess.model.BoardState;
+import com.jchess.model.Piece;
+import com.jchess.model.piece.*;
+import com.jchess.view.animation.PieceAnimation;
+import com.jchess.util.MoveRecord;
 import java.awt.Point;
 import java.util.ArrayList;
 import java.awt.event.*;
-
-import model.Board;
-import model.BoardState;
-import piece.Bishop;
-import piece.King;
-import piece.Knight;
-import piece.Pawn;
-import piece.Piece;
-import piece.PieceType;
-import piece.Queen;
-import piece.Rook;
 
 public class GameManager {
 
@@ -40,7 +35,7 @@ public class GameManager {
     private final ArrayList<Boolean> whiteResignHistory = new ArrayList<>();
     private final ArrayList<Boolean> blackResignHistory = new ArrayList<>();
     private final ArrayList<Boolean> boardFlippedHistory = new ArrayList<>();
-    private ArrayList<Piece> preMoveSnapshot; // Snapshot for undoing to pre-move state, separate from piecesHistory which snapshots after move is committed
+    private ArrayList<Piece> preMoveSnapshot;
 
     public static Piece castlingP;
     public Piece activeP;
@@ -73,14 +68,12 @@ public class GameManager {
         copyPieces(pieces, simPieces);
     }
 
-    // Constructor
     public GameManager(Mouse mouse) {
         this.mouse = mouse;
         setPieces();
         copyPieces(pieces, simPieces);
     }
 
-    // Method that sets up all the pieces in the beginning
     public void setPieces() {
         pieces.clear();
         moves.clear();
@@ -106,7 +99,6 @@ public class GameManager {
         }
     }
 
-    // Helper method for the purpose of moving a piece
     public void copyPieces(ArrayList<Piece> src, ArrayList<Piece> tgt) {
         tgt.clear();
         tgt.addAll(src);
@@ -120,10 +112,6 @@ public class GameManager {
         return clone;
     }
 
-    // Capture the board state right before the currently selected piece (and
-    // any castling rook) starts moving, so undo can restore to this exact
-    // pre-move position later. Must be called at selection time, not at
-    // commit time, since pieces/simPieces share the same Piece instances.
     private void capturePreMoveSnapshot() {
         preMoveSnapshot = copyPieceList(pieces);
     }
@@ -150,7 +138,6 @@ public class GameManager {
             return;
         }
 
-        // Clear any ongoing animations
         animations.clear();
 
         int lastIndex = piecesHistory.size() - 1;
@@ -184,7 +171,6 @@ public class GameManager {
         cachedSortedBlack = null;
         cachedCapturedCount = capturedPieces.size();
 
-        // Snap back to live view after undo
         viewMoveIndex = -1;
 
         if (!gameOver && !stalemate) {
@@ -194,41 +180,33 @@ public class GameManager {
         scrollToBottom();
     }
 
-    // Update all active piece animations
     private void updateAnimations() {
         ArrayList<PieceAnimation> completedAnimations = new ArrayList<>();
         
         for (PieceAnimation anim : animations) {
             boolean isComplete = anim.update();
             if (isComplete) {
-                // Set piece to final position when animation completes
                 anim.piece.col = anim.endCol;
                 anim.piece.row = anim.endRow;
                 anim.piece.updatePixelPosition();
                 completedAnimations.add(anim);
             } else {
-                // Update piece's x, y to animated position
                 anim.piece.x = anim.getAnimatedX();
                 anim.piece.y = anim.getAnimatedY();
             }
         }
         
-        // Remove completed animations
         animations.removeAll(completedAnimations);
     }
 
-    // Check if there are any active animations
     public boolean hasAnimations() {
         return !animations.isEmpty();
     }
 
-    // Main game loop update method
     public void update(boolean mouseJustPressed, boolean mouseJustReleased) {
-        // Update all active animations
         updateAnimations();
         
         if (promotion) {
-            // Handle pawn promotion selection
             promote();
             return;
         }
@@ -239,7 +217,6 @@ public class GameManager {
 
         if (activeP == null) {
             if (mouseJustPressed) {
-                // Select a piece when the player clicks on it
                 selectActivePiece();
             }
         } else {
@@ -247,26 +224,21 @@ public class GameManager {
                 if (mouseJustPressed) {
                     int mouseCol = getMouseColOnBoard();
                     int mouseRow = getMouseRowOnBoard();
-                    // Get the piece located on a specific square
                     Piece clickedPiece = getPieceAt(mouseCol, mouseRow);
 
                     if (clickedPiece == activeP) {
-                        // Cancel the current move and restore the board state
                         cancelMove();
-                    } else if (clickedPiece != null && clickedPiece.color == currentColor) { // Move the piece
+                    } else if (clickedPiece != null && clickedPiece.color == currentColor) {
                         activeP.resetPosition();
                         activeP = clickedPiece;
                         canMove = false;
                         validSquare = false;
                         capturePreMoveSnapshot();
-                        // Update all legal move highlights for the selected piece
                         refreshLegalMoveSquares();
                     } else {
-                        // Simulate a move before committing it
                         simulate();
                     }
                 } else {
-                    // Simulate a move before committing it
                     simulate();
                 }
             } else if (mouseJustReleased) {
@@ -279,10 +251,8 @@ public class GameManager {
                     validSquare = false;
                 } else {
                     if (validSquare) {
-                        // Finalize and commit a valid move
                         commitMove();
                     } else {
-                        // Cancel the current move and restore the board state
                         cancelMove();
                     }
                 }
@@ -290,7 +260,6 @@ public class GameManager {
         }
     }
 
-    // Select a piece when the player clicks on it
     private void selectActivePiece() {
         int mouseCol = getMouseColOnBoard();
         int mouseRow = getMouseRowOnBoard();
@@ -304,19 +273,14 @@ public class GameManager {
                 activeP = p;
                 canMove = false;
                 validSquare = false;
-                // Capture the board state before this piece (or a castling
-                // rook) gets mutated by simulate() during the drag
                 capturePreMoveSnapshot();
-                // Update all legal move highlights for the selected piece
                 refreshLegalMoveSquares();
                 return;
             }
         }
     }
 
-    // Finalize and commit a valid move
     private void commitMove() {
-        // Snap back to live view whenever a new move is made
         viewMoveIndex = -1;
 
         ArrayList<Piece> savedSimPieces = new ArrayList<>(simPieces);
@@ -330,7 +294,6 @@ public class GameManager {
 
         String san = generateSAN(activeP, toCol, toRow, isCapture, isCastling);
 
-        // Store move in ORIGINAL coordinates (flip back if board is currently flipped)
         if (boardFlipped) {
             fromCol = 7 - fromCol;
             fromRow = 7 - fromRow;
@@ -343,10 +306,8 @@ public class GameManager {
 
         copyPieces(simPieces, pieces);
         
-        // Create animation for the moving piece
         animations.add(new PieceAnimation(activeP, activeP.preCol, activeP.preRow, activeP.col, activeP.row));
         
-        // Handle castling rook animation if castling
         if (castlingP != null) {
             animations.add(new PieceAnimation(castlingP, castlingP.preCol, castlingP.preRow, castlingP.col, castlingP.row));
         }
@@ -360,16 +321,13 @@ public class GameManager {
             capturedPieces.add(activeP.hittingP);
         }
 
-        // Check whether a pawn can be promoted
         if (canPromote()) {
             promotion = true;
         } else {
-            // Complete the current turn and check game state
             finishTurn();
         }
     }
 
-    // Cancel the current move and restore the board state
     private void cancelMove() {
         copyPieces(pieces, simPieces);
         activeP.resetPosition();
@@ -380,7 +338,6 @@ public class GameManager {
         legalMoveSquares.clear();
     }
 
-    // Handle pawn promotion selection
     private void promote() {
         if (mouse.pressed) {
             for (Piece p : promoPieces) {
@@ -419,7 +376,6 @@ public class GameManager {
                     canMove = false;
                     validSquare = false;
                     legalMoveSquares.clear();
-                    // Complete the current turn and check game state
                     finishTurn();
                     return;
                 }
@@ -427,7 +383,6 @@ public class GameManager {
         }
     }
 
-    // Simulate a move before committing it
     private void simulate() {
         canMove = false;
         validSquare = false;
@@ -455,9 +410,7 @@ public class GameManager {
                 }
             }
 
-            // Check if castling passes through a square under attack
             boolean castlingThroughCheck = isCastlingThroughCheck(activeP);
-            // Move the rook when castling occurs
             checkCastling();
 
             if (!castlingThroughCheck && !isKingInCheck(currentColor)) {
@@ -466,7 +419,6 @@ public class GameManager {
         }
     }
 
-    // Switch turns between white and black
     private void changePlayer() {
         currentColor = getOppositeColor(currentColor);
         for (Piece p : pieces) {
@@ -477,7 +429,6 @@ public class GameManager {
         activeP = null;
     }
 
-    // Complete the current turn and check game state
     private void finishTurn() {
         int opponent = getOppositeColor(currentColor);
         checkingP = findCheckingPiece(opponent);
@@ -505,7 +456,6 @@ public class GameManager {
             activeP = null;
             legalMoveSquares.clear();
         } else {
-            // Switch turns between white and black
             changePlayer();
         }
     }
@@ -521,7 +471,6 @@ public class GameManager {
         legalMoveSquares.clear();
     }
 
-    // Move the rook when castling occurs
     private void checkCastling() {
         if (castlingP != null) {
             castlingP.col = (castlingP.col == 0) ? 3 : 5;
@@ -529,7 +478,6 @@ public class GameManager {
         }
     }
 
-    // Check whether a pawn can be promoted
     private boolean canPromote() {
         if (activeP.type == PieceType.PAWN) {
             if ((currentColor == WHITE && activeP.row == 0) || (currentColor == BLACK && activeP.row == 7)) {
@@ -544,12 +492,10 @@ public class GameManager {
         return false;
     }
 
-    // Verify that a square is inside the board boundaries
     public boolean isWithinBoard(int col, int row) {
         return col >= 0 && col < 8 && row >= 0 && row < 8;
     }
 
-    // Find and return the king of the specified color
     private Piece getKing(int color) {
         for (Piece p : simPieces) {
             if (p.type == PieceType.KING && p.color == color) {
@@ -559,7 +505,6 @@ public class GameManager {
         return null;
     }
 
-    // Find the piece currently checking a king
     private Piece findCheckingPiece(int kingColor) {
         Piece king = getKing(kingColor);
         if (king == null) return null;
@@ -572,12 +517,10 @@ public class GameManager {
         return null;
     }
 
-    // Determine whether a king is in check
     private boolean isKingInCheck(int kingColor) {
         return findCheckingPiece(kingColor) != null;
     }
 
-    // Check if a square is attacked by a given color
     private boolean isSquareAttacked(int col, int row, int attackingColor) {
         for (Piece p : simPieces) {
             if (p.color == attackingColor && attacksSquare(p, col, row)) {
@@ -587,7 +530,6 @@ public class GameManager {
         return false;
     }
 
-    // Determine whether a piece attacks a specific square
     private boolean attacksSquare(Piece piece, int targetCol, int targetRow) {
         int colDiff = Math.abs(targetCol - piece.col);
         int rowDiff = Math.abs(targetRow - piece.row);
@@ -616,7 +558,6 @@ public class GameManager {
         }
     }
 
-    // Check if there are pieces blocking a path
     private boolean isPathClear(Piece piece, int targetCol, int targetRow) {
         int colDirection = Integer.compare(targetCol, piece.col);
         int rowDirection = Integer.compare(targetRow, piece.row);
@@ -634,7 +575,6 @@ public class GameManager {
         return true;
     }
 
-    // Get the piece located on a specific square
     public Piece getPieceAt(int col, int row) {
         for (Piece p : simPieces) {
             if (p.col == col && p.row == row) {
@@ -644,8 +584,6 @@ public class GameManager {
         return null;
     }
 
-
-    // Check if castling passes through a square under attack
     private boolean isCastlingThroughCheck(Piece king) {
         if (king == null || king.type != PieceType.KING || Math.abs(king.col - king.preCol) != 2) {
             return false;
@@ -673,7 +611,6 @@ public class GameManager {
         return false;
     }
 
-    // Determine whether a player has any legal moves available
     private boolean hasLegalMove(int color) {
         Piece savedCastlingP = castlingP;
 
@@ -698,7 +635,6 @@ public class GameManager {
         return false;
     }
 
-    // Test whether a move is legal without committing it
     private boolean canLegallyMove(Piece piece, int targetCol, int targetRow) {
         int[] savedState = piece.saveState();
         Piece savedHittingP = piece.hittingP;
@@ -720,13 +656,11 @@ public class GameManager {
                 }
             }
 
-            // Check if castling passes through a square under attack
             boolean castlingThroughCheck = isCastlingThroughCheck(piece);
             Piece rook = castlingP;
             int savedRookCol = rook != null ? rook.col : 0;
             int savedRookX   = rook != null ? rook.x   : 0;
 
-            // Move the rook when castling occurs
             checkCastling();
             legal = !castlingThroughCheck && !isKingInCheck(piece.color);
 
@@ -744,7 +678,6 @@ public class GameManager {
         return legal;
     }
 
-    // Update all legal move highlights for the selected piece
     private void refreshLegalMoveSquares() {
         legalMoveSquares.clear();
 
@@ -763,17 +696,14 @@ public class GameManager {
         copyPieces(pieces, simPieces);
     }
 
-    // Get the opposite player's color
     public int getOppositeColor(int color) {
         return color == WHITE ? BLACK : WHITE;
     }
 
-    // Toggle the board flip state and flip all piece coordinates
     public void toggleFlipBoard() {
         boardFlipped = !boardFlipped;
         isBoardFlipped = boardFlipped;
         
-        // Flip all piece coordinates in the game
         for (Piece p : simPieces) {
             p.col = 7 - p.col;
             p.row = 7 - p.row;
@@ -783,22 +713,17 @@ public class GameManager {
             p.y = p.getY(p.row);
         }
         
-        // Flip legal move squares
         for (Point square : legalMoveSquares) {
             square.x = 7 - square.x;
             square.y = 7 - square.y;
         }
         
-        // Note: Move history (moves) is not flipped - it records moves in the original coordinate system
-        
-        // Flip castling piece if it exists
         if (castlingP != null) {
             castlingP.col = 7 - castlingP.col;
             castlingP.row = 7 - castlingP.row;
         }
     }
 
-    // Get the flipped coordinate for a given board position
     public int getFlippedCol(int col) {
         return 7 - col;
     }
@@ -811,7 +736,6 @@ public class GameManager {
         return boardFlipped;
     }
 
-    // Convert mouse coordinates to board coordinates
     private int getMouseColOnBoard() {
         return mouse.x / Board.SIZE;
     }
@@ -919,7 +843,6 @@ public class GameManager {
     }
 
     public ArrayList<Piece> getSortedCapturedPieces(int pieceColor) {
-        // Invalidate cache if captured pieces changed
         if (cachedCapturedCount != capturedPieces.size()) {
             cachedCapturedCount = capturedPieces.size();
             cachedSortedWhite = null;
@@ -961,10 +884,8 @@ public class GameManager {
         return sum;
     }
 
-    // viewMoveIndex: -1 means live/current view; otherwise number of moves to display (0..moves.size())
     public int viewMoveIndex = -1;
 
-    // Navigation / viewing helpers
     public void viewStart() {
         viewMoveIndex = 0;
     }
@@ -975,13 +896,11 @@ public class GameManager {
 
     public void viewNext() {
         if (viewMoveIndex == -1) {
-            // Already at the live end, nothing to do
             return;
         }
         if (viewMoveIndex < moves.size()) {
             viewMoveIndex++;
         }
-        // If we've reached the end of the move list, snap to live view
         if (viewMoveIndex >= moves.size()) {
             viewMoveIndex = -1;
         }
@@ -989,7 +908,6 @@ public class GameManager {
 
     public void viewPrevious() {
         if (viewMoveIndex == -1) {
-            // Start from the last move and go back one
             viewMoveIndex = moves.size() - 1;
         } else if (viewMoveIndex > 0) {
             viewMoveIndex--;
@@ -1000,7 +918,6 @@ public class GameManager {
         return viewMoveIndex;
     }
 
-    // Return the pieces that should be used for rendering based on the current view index
     public ArrayList<Piece> getDisplayPieces() {
         if (viewMoveIndex == -1) {
             return simPieces;
@@ -1008,9 +925,7 @@ public class GameManager {
         return getBoardAtMoveCount(viewMoveIndex);
     }
 
-    // Build a fresh board for display after applying `moveCount` moves (0..moves.size())
     private ArrayList<Piece> getBoardAtMoveCount(int moveCount) {
-        // Create initial position
         ArrayList<Piece> board = new ArrayList<>();
         for (int col = 0; col < 8; col++) {
             board.add(new Pawn(col, 6, WHITE));
@@ -1029,7 +944,6 @@ public class GameManager {
             board.add(blackPiece);
         }
 
-        // If board is currently flipped, flip all starting positions
         if (boardFlipped) {
             for (Piece p : board) {
                 p.col = 7 - p.col;
@@ -1041,7 +955,6 @@ public class GameManager {
             }
         }
 
-        // Apply moves sequentially onto the board copy
         int applyCount = Math.max(0, Math.min(moveCount, moves.size()));
         for (int i = 0; i < applyCount; i++) {
             applyMoveToBoard(board, moves.get(i));
@@ -1050,16 +963,12 @@ public class GameManager {
         return board;
     }
 
-    // Apply a single MoveRecord to a mutable board list (modifies the list)
     private void applyMoveToBoard(ArrayList<Piece> board, MoveRecord mr) {
-        // Move history is always stored in original (unflipped) coordinates,
-        // so we need to convert to display coordinates if the board is flipped
         int fromCol = boardFlipped ? 7 - mr.fromCol : mr.fromCol;
         int fromRow = boardFlipped ? 7 - mr.fromRow : mr.fromRow;
         int toCol   = boardFlipped ? 7 - mr.toCol   : mr.toCol;
         int toRow   = boardFlipped ? 7 - mr.toRow   : mr.toRow;
 
-        // Find moving piece by from coordinates and color (prefer matching type)
         Piece mover = null;
         for (Piece p : board) {
             if (p.col == fromCol && p.row == fromRow && p.color == mr.color) {
@@ -1071,10 +980,9 @@ public class GameManager {
             }
         }
         if (mover == null) {
-            return; // can't find piece, give up
+            return;
         }
 
-        // Handle capture: remove piece at destination or en-passant style
         if (mr.isCapture) {
             Piece captured = null;
             for (Piece p : board) {
@@ -1084,7 +992,6 @@ public class GameManager {
                 }
             }
             if (captured == null) {
-                // try en-passant style capture: piece on target column but at mover's fromRow
                 for (Piece p : board) {
                     if (p.col == toCol && p.row == fromRow && p.color != mr.color && p.type == PieceType.PAWN) {
                         captured = p;
@@ -1097,7 +1004,6 @@ public class GameManager {
             }
         }
 
-        // Handle castling: move rook accordingly
         if (mr.isCastling && mr.type == PieceType.KING) {
             int rookFromCol = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? 7 : 0) : (mr.toCol > mr.fromCol ? 7 : 0);
             int rookToCol   = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1): (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1);
@@ -1112,16 +1018,13 @@ public class GameManager {
             }
         }
 
-        // Move the piece
         mover.col = toCol;
         mover.row = toRow;
         mover.x = mover.getX(mover.col);
         mover.y = mover.getY(mover.row);
         mover.moved = true;
 
-        // Handle promotion
         if (mr.promotionType != null) {
-            // replace pawn with promoted piece
             Piece promoted = null;
             switch (mr.promotionType) {
                 case "ROOK":   promoted = new Rook(mover.col, mover.row, mover.color);   break;
