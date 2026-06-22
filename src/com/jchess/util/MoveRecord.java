@@ -11,6 +11,7 @@ public class MoveRecord {
     public final boolean isCastling;
     public String san;
     public String promotionType;
+    public Integer timeOutWinner; // null if not time-out, 0 for White, 1 for Black
 
     public MoveRecord(PieceType type, int fromCol, int fromRow, int toCol, int toRow, int color, boolean isCapture, boolean isCastling, String san) {
         this.type = type;
@@ -22,5 +23,6 @@ public class MoveRecord {
         this.isCapture = isCapture;
         this.isCastling = isCastling;
         this.san = san;
+        this.timeOutWinner = null;
     }
 }

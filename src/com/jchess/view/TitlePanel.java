@@ -6,11 +6,13 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import javax.imageio.ImageIO;
+import com.jchess.view.GamePanel;
 
 
 public class TitlePanel extends JPanel {
     private GamePanel gamePanel;
     private JButton startButton;
+    private JComboBox<String> timeComboBox;
 
     // Fade effect fields
     private float alpha = 1.0f;
@@ -50,6 +52,16 @@ public class TitlePanel extends JPanel {
         subtitleLabel.setHorizontalAlignment(SwingConstants.CENTER);
         add(subtitleLabel);
 
+        // Time control selector
+        String[] timeOptions = {"1 min", "3 min", "5 min", "10 min", "15 min", "30 min", "60 min"};
+        timeComboBox = new JComboBox<>(timeOptions);
+        timeComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
+        timeComboBox.setBounds(325, 380, 250, 35);
+        timeComboBox.setSelectedItem("10 min");
+        timeComboBox.setBackground(new Color(60, 60, 60));
+        timeComboBox.setForeground(Color.WHITE);
+        add(timeComboBox);
+
         // Create start button
         startButton = new JButton("Start Game");
         startButton.setFont(new Font("Roboto", Font.PLAIN, 24));
@@ -63,7 +75,8 @@ public class TitlePanel extends JPanel {
         startButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                startGame();
+                int selectedMinutes = Integer.parseInt((timeComboBox.getSelectedItem()).toString().split(" ")[0]);
+                startGame(selectedMinutes * 60);
             }
 
         });
@@ -103,7 +116,7 @@ public class TitlePanel extends JPanel {
     }
 
     // Start the fade-out animation, then start the game and hide the panel
-    private void startGame() {
+    private void startGame(int initialTimeSeconds) {
         if (fadingOut) return;
         fadingOut = true;
         startButton.setEnabled(false);
@@ -128,7 +141,7 @@ public class TitlePanel extends JPanel {
                 if (alpha <= 0.0f) {
                     fadeTimer.stop();
                     // Now actually start the game and hide this panel
-                    gamePanel.startGame();
+                    gamePanel.startGame(initialTimeSeconds);
                     setVisible(false);
 
                     // Reset so the panel fades in correctly if shown again later

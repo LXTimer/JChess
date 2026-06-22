@@ -40,11 +40,11 @@ public class GamePanel extends JPanel {
     private static final int SIDE_PANEL_WIDTH = WIDTH - SIDE_PANEL_X - 16;
     private static final int SIDE_PANEL_HEIGHT = 510;
     private static final int SIDE_PANEL_CENTER_X = SIDE_PANEL_X + SIDE_PANEL_WIDTH / 2;
-    private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 45;
-    private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 25;
-    private static final int WHITE_TURN_Y = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 45;
+    private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 50;
+    private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 30;
+    private static final int WHITE_TURN_Y = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 50;
     private static final int WHITE_CHECK_Y = WHITE_TURN_Y - 30;
-    private static final int PROMOTION_LABEL_Y = SIDE_PANEL_Y + 105;
+    private static final int PROMOTION_LABEL_Y = SIDE_PANEL_Y + 110;
     private static final int MOVE_DOT_OUTER_SIZE = 30;
     private static final int MOVE_DOT_INNER_SIZE = 15;
     private static final float BACKGROUND_ALPHA = 0.70f;
@@ -54,6 +54,10 @@ public class GamePanel extends JPanel {
     private final Mouse mouse;
     private final GameManager gm;
     private BufferedImage background;
+    private int whiteTimeRemaining; // in seconds
+    private int blackTimeRemaining; // in seconds
+    private long lastSecondTimestamp;
+    private static final int INITIAL_TIME_SECONDS = 6000;
     private BufferedImage flipBoardIcon;
     private BufferedImage ResignIcon;
     private BufferedImage undoIcon;
@@ -91,10 +95,15 @@ public class GamePanel extends JPanel {
     }
 
     // Start method
-    public void startGame() {
+    public void startGame(int initialTimeSeconds) {
         if (gameTimer != null && gameTimer.isRunning()) {
             return;
         }
+
+        // Initialize timer
+        whiteTimeRemaining = initialTimeSeconds;
+        blackTimeRemaining = initialTimeSeconds;
+        lastSecondTimestamp = System.currentTimeMillis();
 
         gameTimer = new Timer(TIMER_DELAY, e -> {
             boolean mouseJustPressed = mouse.pressed && !mousePressedLastFrame;
@@ -128,6 +137,9 @@ public class GamePanel extends JPanel {
                 // Main game loop update method
                 gm.update(mouseJustPressed, mouseJustReleased);
             }
+
+            // Update timer
+            updateTimer();
 
             repaint();
         });
@@ -307,11 +319,14 @@ public class GamePanel extends JPanel {
         // Draw turn information and promotion options
         drawStatus(g2);
 
+        // Draw the timer for both players
+        drawTimer(g2);
+
         // Draw captured pieces tracker
         drawCapturedPieces(g2);
 
-        // Draw the move log (only when not in promotion screen)
-        if (!gm.promotion) {
+        // Draw the move log (only when not in promotion screen and game is not over)
+        if (!gm.promotion && !gm.gameOver && !gm.stalemate) {
             drawMoveLog(g2);
         }
 
@@ -405,9 +420,9 @@ public class GamePanel extends JPanel {
                 g2.drawImage(p.img, p.getX(p.col), p.getY(p.row), Board.SIZE, Board.SIZE, null);
             }
         } else {
-            g2.setFont(new Font("Roboto", Font.BOLD, 24));
+            g2.setFont(new Font("Roboto", Font.BOLD, 18));
             if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
-                drawCenteredString(g2, "White's turn", SIDE_PANEL_CENTER_X, WHITE_TURN_Y);
+                drawCenteredString(g2, "White's turn", SIDE_PANEL_CENTER_X - 65, WHITE_TURN_Y + 25);
                 if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.BLACK) {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
                     g2.setColor(Color.red);
@@ -415,7 +430,7 @@ public class GamePanel extends JPanel {
                     drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X, WHITE_CHECK_Y);
                 }
             } else {
-                drawCenteredString(g2, "Black's turn", SIDE_PANEL_CENTER_X, BLACK_TURN_Y);
+                drawCenteredString(g2, "Black's turn", SIDE_PANEL_CENTER_X - 65, BLACK_TURN_Y - 10);
                 if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.WHITE) {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
                     g2.setColor(Color.red);
@@ -428,34 +443,56 @@ public class GamePanel extends JPanel {
 
     // Display the game result when the game ends
     private void drawGameResult(Graphics2D g2) {
-        if (gm.gameOver) {
+        if (gm.gameOver || gm.stalemate) {
+            int centerY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT / 2;
+            
             if (gm.whiteResign) {
-                g2.setFont(new Font("Roboto", Font.BOLD, 30));
+                g2.setFont(new Font("Roboto", Font.BOLD, 32));
                 g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, "Black Wins", SIDE_PANEL_CENTER_X, 500);
-                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, 530);
+                drawCenteredString(g2, "Black Wins", SIDE_PANEL_CENTER_X, centerY - 15);
+                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
+                g2.setColor(new Color(200, 200, 200));
+                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, centerY + 15);
                 return;
+
             } else if (gm.blackResign) {
-                g2.setFont(new Font("Roboto", Font.BOLD, 30));
+                g2.setFont(new Font("Roboto", Font.BOLD, 32));
                 g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, "White Wins", SIDE_PANEL_CENTER_X, 500);
-                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, 530);
+                drawCenteredString(g2, "White Wins", SIDE_PANEL_CENTER_X, centerY - 15);
+                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
+                g2.setColor(new Color(200, 200, 200));
+                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, centerY + 15);
                 return;
-            } else{
+            } else if (gm.timeOutWinner != null) {
+                // Time out win
+                g2.setFont(new Font("Roboto", Font.BOLD, 32));
+                g2.setColor(new Color(126, 255, 140));
+                drawCenteredString(g2, (gm.timeOutWinner == com.jchess.game.GameManager.WHITE ? "White" : "Black") + " Wins", SIDE_PANEL_CENTER_X, centerY - 15);
+                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
+                g2.setColor(new Color(255, 200, 100));
+                drawCenteredString(g2, "by Time", SIDE_PANEL_CENTER_X, centerY + 15);
+                return;
+            } else {
                 String s = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? "White Wins" : "Black Wins";
                 g2.setFont(new Font("Roboto", Font.BOLD, 26));
                 g2.setColor(new Color(255, 88, 88));
-                drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, 480);
+                drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, centerY - 20);
                 g2.setFont(new Font("Roboto", Font.BOLD, 30));
                 g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, 520);
+                drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, centerY + 15);
             }
         }
 
         if (gm.stalemate) {
-            g2.setFont(new Font("Roboto", Font.BOLD, 30));
+            int centerY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT / 2;
+            g2.setFont(new Font("Roboto", Font.BOLD, 32));
             g2.setColor(Color.lightGray);
-            drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, 500);
+            drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, centerY);
+            if (gm.isInsufficientMaterial()) {
+                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
+                g2.setColor(new Color(200, 200, 200));
+                drawCenteredString(g2, "by Insufficient Material", SIDE_PANEL_CENTER_X, centerY + 30);
+            }
         }
     }
 
@@ -484,9 +521,77 @@ public class GamePanel extends JPanel {
         }
     }
 
+    private void updateTimer() {
+        if (gm.gameOver || gm.stalemate) {
+            return;
+        }
+
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastSecondTimestamp >= 1000) {
+            lastSecondTimestamp = currentTime;
+
+            if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
+                whiteTimeRemaining--;
+                if (whiteTimeRemaining <= 0) {
+                    whiteTimeRemaining = 0;
+                    gm.timeOutWin(com.jchess.game.GameManager.BLACK);
+                }
+            } else {
+                blackTimeRemaining--;
+                if (blackTimeRemaining <= 0) {
+                    blackTimeRemaining = 0;
+                    gm.timeOutWin(com.jchess.game.GameManager.WHITE);
+                }
+            }
+        }
+    }
+
+    private String formatTime(int seconds) {
+        int minutes = seconds / 60;
+        int secs = seconds % 60;
+        return String.format("%02d:%02d", minutes, secs);
+    }
+
+    private void drawTimer(Graphics2D g2){
+        int timerWidth = 120;
+        int timerHeight = 40;
+        int timerX = SIDE_PANEL_CENTER_X;
+        int timerBlackY = SIDE_PANEL_Y + 15;
+        int timerWhiteY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - timerHeight - 15;
+
+        // Draw timer backgrounds
+        g2.setColor(new Color(255, 255, 255, 30));
+        g2.fillRoundRect(timerX, timerWhiteY, timerWidth, timerHeight, 4, 4);
+        g2.fillRoundRect(timerX, timerBlackY, timerWidth, timerHeight, 4, 4);
+
+        // Draw timer text
+        g2.setFont(new Font("Roboto", Font.BOLD, 16));
+        g2.setColor(Color.white);
+
+        // White's timer (bottom)
+        String whiteTime = formatTime(whiteTimeRemaining);
+        FontMetrics metrics = g2.getFontMetrics();
+        int whiteTextX = timerX + (timerWidth - metrics.stringWidth(whiteTime)) / 2;
+        int whiteTextY = timerWhiteY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
+        g2.drawString(whiteTime, whiteTextX, whiteTextY);
+
+        // Black's timer (top)
+        String blackTime = formatTime(blackTimeRemaining);
+        int blackTextX = timerX + (timerWidth - metrics.stringWidth(blackTime)) / 2;
+        int blackTextY = timerBlackY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
+        g2.drawString(blackTime, blackTextX, blackTextY);
+
+        // Highlight active player's timer
+        if (!gm.gameOver && !gm.stalemate) {
+            int activeY = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? timerWhiteY : timerBlackY;
+            g2.setColor(new Color(255, 255, 255, 60));
+            g2.drawRoundRect(timerX - 2, activeY - 2, timerWidth + 4, timerHeight + 4, 6, 6);
+        }
+    }
+
     private void drawMoveLog(Graphics2D g2) {
         int boxX = SIDE_PANEL_X + 16;
-        int boxY = 140;
+        int boxY = 150;
         int boxWidth = SIDE_PANEL_WIDTH - 32;
         int boxHeight = 300;
         // Draw the background box for the log
@@ -649,9 +754,10 @@ public class GamePanel extends JPanel {
         int totalMoves = gm.moves.size();
         int totalPairs = (totalMoves + 1) / 2;
         int maxVisible = 10;
-
+        
+        // Move log entries
         g2.setFont(new Font("Roboto", Font.PLAIN, 13));
-
+        // activeMoveIndex is the index of the move that should be highlighted as the "current" move in the log
         int activeMoveIndex = (gm.getViewMoveIndex() == -1) ? (totalMoves - 1) : (gm.getViewMoveIndex() - 1);
         for (int i = 0; i < maxVisible; i++) {
             int pairIndex = gm.scrollStartLine + i;
@@ -729,6 +835,7 @@ public class GamePanel extends JPanel {
         g2.drawString(text, textX, baselineY);
     }
 
+    // Draw the captured pieces for both players in the side panel
     private void drawCapturedPieces(Graphics2D g2) {
         ArrayList<Piece> capturedWhite = gm.getSortedCapturedPieces(com.jchess.game.GameManager.WHITE);
         int topY = SIDE_PANEL_Y + 60;
@@ -743,6 +850,7 @@ public class GamePanel extends JPanel {
 
         g2.setFont(new Font("Roboto", Font.BOLD, 12));
 
+        // Display the material advantage as a positive number next to the player who is ahead
         if (valWhite > valBlack) {
             g2.setColor(new Color(210, 215, 225));
             g2.drawString("+" + (valWhite - valBlack), bottomEndX + 8, bottomY + 15);
@@ -752,6 +860,7 @@ public class GamePanel extends JPanel {
         }
     }
 
+    // Helper method to draw a list of captured pieces in a row, returns the x-coordinate after the last drawn piece
     private int drawCapturedList(Graphics2D g2, ArrayList<Piece> piecesList, int startX, int startY) {
         int currentX = startX;
         int iconSize = 20;
