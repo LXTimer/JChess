@@ -51,6 +51,8 @@ public class GameManager {
     public boolean boardFlipped = false;
     public boolean whiteResign = false;
     public boolean blackResign = false;
+    public boolean isInsufficientMaterial = false;
+    public Integer timeOutWinner = null; // null if not time-out, 0 for White, 1 for Black
 
     private final Mouse mouse;
     
@@ -471,6 +473,13 @@ public class GameManager {
         legalMoveSquares.clear();
     }
 
+    public void timeOutWin(int winnerColor) {
+        gameOver = true;
+        activeP = null;
+        legalMoveSquares.clear();
+        timeOutWinner = winnerColor;
+    }
+
     private void checkCastling() {
         if (castlingP != null) {
             castlingP.col = (castlingP.col == 0) ? 3 : 5;
@@ -694,6 +703,30 @@ public class GameManager {
         }
 
         copyPieces(pieces, simPieces);
+    }
+
+    public boolean isInsufficientMaterial () {
+        boolean whiteHasSufficient = false;
+        boolean blackHasSufficient = false;
+
+        for (Piece p : pieces) {
+            if (p.type == PieceType.PAWN || p.type == PieceType.ROOK || p.type == PieceType.QUEEN) {
+                if (p.color == WHITE) {
+                    whiteHasSufficient = true;
+                } else {
+                    blackHasSufficient = true;
+                }
+            } else if (p.type == PieceType.BISHOP || p.type == PieceType.KNIGHT) {
+                if (p.color == WHITE) {
+                    whiteHasSufficient = true;
+                } else {
+                    blackHasSufficient = true;
+                }
+            }
+        }
+
+        stalemate = !whiteHasSufficient && !blackHasSufficient;
+        return !whiteHasSufficient && !blackHasSufficient;
     }
 
     public int getOppositeColor(int color) {
