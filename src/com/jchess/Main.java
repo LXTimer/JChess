@@ -9,7 +9,7 @@ import com.jchess.view.TitlePanel;
 public class Main {
 
 	public static void main(String[] args) {
-
+									
 		JFrame frame = new JFrame("JChess");
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		frame.setResizable(false);

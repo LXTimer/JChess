@@ -32,7 +32,7 @@ public class GamePanel extends JPanel {
     // Declare all the variables
     public static final int WIDTH = 900;
     public static final int HEIGHT = 600;
-    private static final int FPS = 120;
+    private static final int FPS = 60;
     private static final int TIMER_DELAY = 1000 / FPS;
     private static final int BOARD_PIXEL_SIZE = Board.SIZE * 8;
     private static final int SIDE_PANEL_X = BOARD_PIXEL_SIZE + 12;
@@ -427,7 +427,7 @@ public class GamePanel extends JPanel {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
                     g2.setColor(Color.red);
                     // Draw a warning message when a king is in check
-                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X, WHITE_CHECK_Y);
+                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, WHITE_CHECK_Y + 25);
                 }
             } else {
                 drawCenteredString(g2, "Black's turn", SIDE_PANEL_CENTER_X - 65, BLACK_TURN_Y - 10);
@@ -435,7 +435,7 @@ public class GamePanel extends JPanel {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
                     g2.setColor(Color.red);
                     // Draw a warning message when a king is in check
-                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X, BLACK_CHECK_Y);
+                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, BLACK_CHECK_Y - 15);
                 }
             }
         }
@@ -487,8 +487,8 @@ public class GamePanel extends JPanel {
             int centerY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT / 2;
             g2.setFont(new Font("Roboto", Font.BOLD, 32));
             g2.setColor(Color.lightGray);
-            drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, centerY);
-            if (gm.isInsufficientMaterial()) {
+                drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, centerY);
+                if (gm.getMoveValidator().isInsufficientMaterial()) {
                 g2.setFont(new Font("Roboto", Font.PLAIN, 22));
                 g2.setColor(new Color(200, 200, 200));
                 drawCenteredString(g2, "by Insufficient Material", SIDE_PANEL_CENTER_X, centerY + 30);
