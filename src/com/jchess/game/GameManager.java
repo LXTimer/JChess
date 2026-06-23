@@ -1,8 +1,8 @@
 package com.jchess.game;
 
+import com.jchess.audio.SoundManager;
 import com.jchess.input.Mouse;
 import com.jchess.model.Board;
-import com.jchess.model.BoardState;
 import com.jchess.model.Piece;
 import com.jchess.model.piece.*;
 import com.jchess.view.animation.PieceAnimation;
@@ -64,16 +64,24 @@ public class GameManager {
     private ArrayList<Piece> cachedSortedBlack;
     private int cachedCapturedCount = -1;
 
+    private final MoveValidator moveValidator;
+
     public GameManager() {
         this.mouse = new Mouse();
+        this.moveValidator = new MoveValidator(this);
         setPieces();
         copyPieces(pieces, simPieces);
     }
 
     public GameManager(Mouse mouse) {
         this.mouse = mouse;
+        this.moveValidator = new MoveValidator(this);
         setPieces();
         copyPieces(pieces, simPieces);
+    }
+
+    public MoveValidator getMoveValidator() {
+        return moveValidator;
     }
 
     public void setPieces() {
@@ -176,7 +184,7 @@ public class GameManager {
         viewMoveIndex = -1;
 
         if (!gameOver && !stalemate) {
-            checkingP = findCheckingPiece(getOppositeColor(currentColor));
+            checkingP = moveValidator.findCheckingPiece(getOppositeColor(currentColor));
         }
 
         scrollToBottom();
@@ -226,7 +234,7 @@ public class GameManager {
                 if (mouseJustPressed) {
                     int mouseCol = getMouseColOnBoard();
                     int mouseRow = getMouseRowOnBoard();
-                    Piece clickedPiece = getPieceAt(mouseCol, mouseRow);
+                    Piece clickedPiece = moveValidator.getPieceAt(mouseCol, mouseRow);
 
                     if (clickedPiece == activeP) {
                         cancelMove();
@@ -236,7 +244,7 @@ public class GameManager {
                         canMove = false;
                         validSquare = false;
                         capturePreMoveSnapshot();
-                        refreshLegalMoveSquares();
+                        moveValidator.refreshLegalMoveSquares();
                     } else {
                         simulate();
                     }
@@ -266,7 +274,7 @@ public class GameManager {
         int mouseCol = getMouseColOnBoard();
         int mouseRow = getMouseRowOnBoard();
 
-        if (!isWithinBoard(mouseCol, mouseRow)) {
+        if (!moveValidator.isWithinBoard(mouseCol, mouseRow)) {
             return;
         }
 
@@ -276,7 +284,7 @@ public class GameManager {
                 canMove = false;
                 validSquare = false;
                 capturePreMoveSnapshot();
-                refreshLegalMoveSquares();
+                moveValidator.refreshLegalMoveSquares();
                 return;
             }
         }
@@ -321,9 +329,12 @@ public class GameManager {
 
         if (isCapture && activeP.hittingP != null) {
             capturedPieces.add(activeP.hittingP);
+            SoundManager.playCapture();
+        } else {
+            SoundManager.playMove();
         }
 
-        if (canPromote()) {
+        if (moveValidator.canPromote()) {
             promotion = true;
         } else {
             finishTurn();
@@ -412,10 +423,10 @@ public class GameManager {
                 }
             }
 
-            boolean castlingThroughCheck = isCastlingThroughCheck(activeP);
-            checkCastling();
+            boolean castlingThroughCheck = moveValidator.isCastlingThroughCheck(activeP);
+            moveValidator.checkCastling();
 
-            if (!castlingThroughCheck && !isKingInCheck(currentColor)) {
+            if (!castlingThroughCheck && !moveValidator.isKingInCheck(currentColor)) {
                 validSquare = true;
             }
         }
@@ -433,8 +444,8 @@ public class GameManager {
 
     private void finishTurn() {
         int opponent = getOppositeColor(currentColor);
-        checkingP = findCheckingPiece(opponent);
-        boolean opponentHasLegalMove = hasLegalMove(opponent);
+        checkingP = moveValidator.findCheckingPiece(opponent);
+        boolean opponentHasLegalMove = moveValidator.hasLegalMove(opponent);
 
         if (!moves.isEmpty()) {
             MoveRecord lastMove = moves.get(moves.size() - 1);
@@ -453,10 +464,12 @@ public class GameManager {
             gameOver = true;
             activeP = null;
             legalMoveSquares.clear();
+            SoundManager.playBeep();
         } else if (checkingP == null && !opponentHasLegalMove) {
             stalemate = true;
             activeP = null;
             legalMoveSquares.clear();
+            SoundManager.playBeep();
         } else {
             changePlayer();
         }
@@ -478,255 +491,6 @@ public class GameManager {
         activeP = null;
         legalMoveSquares.clear();
         timeOutWinner = winnerColor;
-    }
-
-    private void checkCastling() {
-        if (castlingP != null) {
-            castlingP.col = (castlingP.col == 0) ? 3 : 5;
-            castlingP.x = castlingP.getX(castlingP.col);
-        }
-    }
-
-    private boolean canPromote() {
-        if (activeP.type == PieceType.PAWN) {
-            if ((currentColor == WHITE && activeP.row == 0) || (currentColor == BLACK && activeP.row == 7)) {
-                promoPieces.clear();
-                promoPieces.add(new Rook(9, 2, currentColor));
-                promoPieces.add(new Knight(9, 3, currentColor));
-                promoPieces.add(new Bishop(9, 4, currentColor));
-                promoPieces.add(new Queen(9, 5, currentColor));
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public boolean isWithinBoard(int col, int row) {
-        return col >= 0 && col < 8 && row >= 0 && row < 8;
-    }
-
-    private Piece getKing(int color) {
-        for (Piece p : simPieces) {
-            if (p.type == PieceType.KING && p.color == color) {
-                return p;
-            }
-        }
-        return null;
-    }
-
-    private Piece findCheckingPiece(int kingColor) {
-        Piece king = getKing(kingColor);
-        if (king == null) return null;
-
-        for (Piece p : simPieces) {
-            if (p.color != kingColor && attacksSquare(p, king.col, king.row)) {
-                return p;
-            }
-        }
-        return null;
-    }
-
-    private boolean isKingInCheck(int kingColor) {
-        return findCheckingPiece(kingColor) != null;
-    }
-
-    private boolean isSquareAttacked(int col, int row, int attackingColor) {
-        for (Piece p : simPieces) {
-            if (p.color == attackingColor && attacksSquare(p, col, row)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean attacksSquare(Piece piece, int targetCol, int targetRow) {
-        int colDiff = Math.abs(targetCol - piece.col);
-        int rowDiff = Math.abs(targetRow - piece.row);
-
-        switch (piece.type) {
-            case PAWN:
-                int direction = piece.color == WHITE ? -1 : 1;
-                if (boardFlipped) {
-                    direction = -direction;
-                }
-                return rowDiff == 1 && targetRow == piece.row + direction && colDiff == 1;
-            case KNIGHT:
-                return (colDiff == 1 && rowDiff == 2) || (colDiff == 2 && rowDiff == 1);
-            case BISHOP:
-                return colDiff == rowDiff && isPathClear(piece, targetCol, targetRow);
-            case ROOK:
-                return (targetCol == piece.col || targetRow == piece.row) && isPathClear(piece, targetCol, targetRow);
-            case QUEEN:
-                boolean straight = targetCol == piece.col || targetRow == piece.row;
-                boolean diagonal = colDiff == rowDiff;
-                return (straight || diagonal) && isPathClear(piece, targetCol, targetRow);
-            case KING:
-                return colDiff <= 1 && rowDiff <= 1;
-            default:
-                return false;
-        }
-    }
-
-    private boolean isPathClear(Piece piece, int targetCol, int targetRow) {
-        int colDirection = Integer.compare(targetCol, piece.col);
-        int rowDirection = Integer.compare(targetRow, piece.row);
-        int currentCol = piece.col + colDirection;
-        int currentRow = piece.row + rowDirection;
-
-        while (currentCol != targetCol || currentRow != targetRow) {
-            if (getPieceAt(currentCol, currentRow) != null) {
-                return false;
-            }
-            currentCol += colDirection;
-            currentRow += rowDirection;
-        }
-
-        return true;
-    }
-
-    public Piece getPieceAt(int col, int row) {
-        for (Piece p : simPieces) {
-            if (p.col == col && p.row == row) {
-                return p;
-            }
-        }
-        return null;
-    }
-
-    private boolean isCastlingThroughCheck(Piece king) {
-        if (king == null || king.type != PieceType.KING || Math.abs(king.col - king.preCol) != 2) {
-            return false;
-        }
-
-        int originalCol = king.col;
-        int originalRow = king.row;
-        int direction = king.col > king.preCol ? 1 : -1;
-        int attackingColor = getOppositeColor(king.color);
-
-        for (int step = 0; step <= 2; step++) {
-            int col = king.preCol + direction * step;
-            king.col = col;
-            king.row = king.preRow;
-
-            if (isSquareAttacked(col, king.preRow, attackingColor)) {
-                king.col = originalCol;
-                king.row = originalRow;
-                return true;
-            }
-        }
-
-        king.col = originalCol;
-        king.row = originalRow;
-        return false;
-    }
-
-    private boolean hasLegalMove(int color) {
-        Piece savedCastlingP = castlingP;
-
-        for (Piece piece : new ArrayList<>(pieces)) {
-            if (piece.color != color) {
-                continue;
-            }
-
-            for (int row = 0; row < 8; row++) {
-                for (int col = 0; col < 8; col++) {
-                    if (canLegallyMove(piece, col, row)) {
-                        castlingP = savedCastlingP;
-                        copyPieces(pieces, simPieces);
-                        return true;
-                    }
-                }
-            }
-        }
-
-        castlingP = savedCastlingP;
-        copyPieces(pieces, simPieces);
-        return false;
-    }
-
-    private boolean canLegallyMove(Piece piece, int targetCol, int targetRow) {
-        int[] savedState = piece.saveState();
-        Piece savedHittingP = piece.hittingP;
-        Piece savedCastlingP = castlingP;
-
-        copyPieces(pieces, simPieces);
-        castlingP = null;
-
-        piece.col = targetCol;
-        piece.row = targetRow;
-
-        boolean legal = false;
-
-        if (piece.canMove(targetCol, targetRow)) {
-            if (piece.hittingP != null) {
-                int hitIndex = piece.hittingP.getIndex();
-                if (hitIndex >= 0) {
-                    simPieces.remove(hitIndex);
-                }
-            }
-
-            boolean castlingThroughCheck = isCastlingThroughCheck(piece);
-            Piece rook = castlingP;
-            int savedRookCol = rook != null ? rook.col : 0;
-            int savedRookX   = rook != null ? rook.x   : 0;
-
-            checkCastling();
-            legal = !castlingThroughCheck && !isKingInCheck(piece.color);
-
-            if (rook != null) {
-                rook.col = savedRookCol;
-                rook.x   = savedRookX;
-            }
-        }
-
-        piece.restoreState(savedState);
-        piece.hittingP = savedHittingP;
-        castlingP = savedCastlingP;
-        copyPieces(pieces, simPieces);
-
-        return legal;
-    }
-
-    private void refreshLegalMoveSquares() {
-        legalMoveSquares.clear();
-
-        if (activeP == null) {
-            return;
-        }
-
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                if (canLegallyMove(activeP, col, row)) {
-                    legalMoveSquares.add(new Point(col, row));
-                }
-            }
-        }
-
-        copyPieces(pieces, simPieces);
-    }
-
-    public boolean isInsufficientMaterial () {
-        boolean whiteHasSufficient = false;
-        boolean blackHasSufficient = false;
-
-        for (Piece p : pieces) {
-            if (p.type == PieceType.PAWN || p.type == PieceType.ROOK || p.type == PieceType.QUEEN) {
-                if (p.color == WHITE) {
-                    whiteHasSufficient = true;
-                } else {
-                    blackHasSufficient = true;
-                }
-            } else if (p.type == PieceType.BISHOP || p.type == PieceType.KNIGHT) {
-                if (p.color == WHITE) {
-                    whiteHasSufficient = true;
-                } else {
-                    blackHasSufficient = true;
-                }
-            }
-        }
-
-        stalemate = !whiteHasSufficient && !blackHasSufficient;
-        return !whiteHasSufficient && !blackHasSufficient;
     }
 
     public int getOppositeColor(int color) {
@@ -801,7 +565,7 @@ public class GameManager {
 
             for (Piece p : pieces) {
                 if (p != piece && p.color == piece.color && p.type == piece.type) {
-                    if (canLegallyMove(p, targetCol, targetRow)) {
+                    if (moveValidator.canLegallyMove(p, targetCol, targetRow)) {
                         anotherCanMove = true;
                         if (p.col == piece.preCol) {
                             shareFile = true;
