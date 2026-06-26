@@ -20,12 +20,11 @@ import javax.imageio.ImageIO;
 import javax.swing.JPanel;
 import javax.swing.Timer;
 
+import com.jchess.game.GameManager;
 import com.jchess.input.Mouse;
 import com.jchess.model.Board;
 import com.jchess.model.Piece;
 import com.jchess.model.piece.PieceType;
-import com.jchess.game.GameManager;
-import com.jchess.util.MoveRecord;
 
 public class GamePanel extends JPanel {
 
@@ -62,6 +61,13 @@ public class GamePanel extends JPanel {
     private BufferedImage ResignIcon;
     private BufferedImage undoIcon;
     private boolean mousePressedLastFrame = false;
+    private boolean rightPressedLastFrame = false;
+    private boolean leftPressedLastFrame = false;
+    private int rightClickStartCol = -1;
+    private int rightClickStartRow = -1;
+    private boolean rightClickDragging = false;
+    private final ArrayList<Point> rightClickHighlights = new ArrayList<>();
+    private final ArrayList<Arrow> rightClickArrows = new ArrayList<>();
     private java.awt.Rectangle flipButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle resignWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle resignBlackRect = new java.awt.Rectangle();
@@ -137,6 +143,9 @@ public class GamePanel extends JPanel {
                 // Main game loop update method
                 gm.update(mouseJustPressed, mouseJustReleased);
             }
+
+            // Update right-click annotations (highlights & arrows)
+            updateRightClickAnnotations();
 
             // Update timer
             updateTimer();
@@ -316,6 +325,10 @@ public class GamePanel extends JPanel {
             drawPieceWithFlip(g2, gm.activeP);
         }
 
+        // Draw right-click annotations (highlights & arrows)
+        drawRightClickHighlights(g2);
+        drawRightClickArrows(g2);
+
         // Draw turn information and promotion options
         drawStatus(g2);
 
@@ -344,6 +357,8 @@ public class GamePanel extends JPanel {
         boolean hovered = mouse.x >= col * Board.SIZE && mouse.x < (col + 1) * Board.SIZE
                        && mouse.y >= row * Board.SIZE && mouse.y < (row + 1) * Board.SIZE;
 
+        Composite oldComposite = g2.getComposite();
+
         if (hovered) {
             // Draw a brighter, more opaque highlight on hover
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.50f));
@@ -363,6 +378,8 @@ public class GamePanel extends JPanel {
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
             g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
         }
+
+        g2.setComposite(oldComposite);
     }
 
     // Highlight the king when it is in check
@@ -496,6 +513,129 @@ public class GamePanel extends JPanel {
         }
     }
 
+    // Inner class representing a right-click arrow annotation
+    private static class Arrow {
+        int startCol, startRow, endCol, endRow;
+        Arrow(int startCol, int startRow, int endCol, int endRow) {
+            this.startCol = startCol;
+            this.startRow = startRow;
+            this.endCol = endCol;
+            this.endRow = endRow;
+        }
+    }
+
+    // Update right-click highlights and arrows based on mouse state
+    private void updateRightClickAnnotations() {
+        boolean rightJustPressed = mouse.rightPressed && !rightPressedLastFrame;
+        boolean rightJustReleased = !mouse.rightPressed && rightPressedLastFrame;
+        rightPressedLastFrame = mouse.rightPressed;
+
+        int mouseCol = mouse.x / Board.SIZE;
+        int mouseRow = mouse.y / Board.SIZE;
+
+        // Validate that the mouse is on the board
+        boolean onBoard = mouseCol >= 0 && mouseCol < 8 && mouseRow >= 0 && mouseRow < 8;
+
+        // Left-click on the board clears all annotations
+        boolean leftJustPressed = mouse.pressed && !leftPressedLastFrame;
+        leftPressedLastFrame = mouse.pressed;
+        if (leftJustPressed && onBoard) {
+            rightClickHighlights.clear();
+            rightClickArrows.clear();
+            rightClickStartCol = -1;
+            rightClickStartRow = -1;
+            rightClickDragging = false;
+        }
+
+        if (rightJustPressed && onBoard) {
+            rightClickStartCol = mouseCol;
+            rightClickStartRow = mouseRow;
+            rightClickDragging = true;
+        }
+
+        if (rightJustReleased) {
+            if (rightClickDragging && rightClickStartCol >= 0 && rightClickStartRow >= 0) {
+                if (onBoard && (mouseCol != rightClickStartCol || mouseRow != rightClickStartRow)) {
+                    // Dragged to a different square — toggle arrow from start to end
+                    boolean found = false;
+                    for (int i = 0; i < rightClickArrows.size(); i++) {
+                        Arrow a = rightClickArrows.get(i);
+                        if (a.startCol == rightClickStartCol && a.startRow == rightClickStartRow
+                            && a.endCol == mouseCol && a.endRow == mouseRow) {
+                            rightClickArrows.remove(i);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        rightClickArrows.add(new Arrow(rightClickStartCol, rightClickStartRow, mouseCol, mouseRow));
+                    }
+                } else {
+                    // Right-click on same square (no drag) — toggle highlight circle
+                    Point p = new Point(rightClickStartCol, rightClickStartRow);
+                    boolean found = false;
+                    for (int i = 0; i < rightClickHighlights.size(); i++) {
+                        if (rightClickHighlights.get(i).equals(p)) {
+                            rightClickHighlights.remove(i);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        rightClickHighlights.add(p);
+                    }
+                }
+            }
+            rightClickStartCol = -1;
+            rightClickStartRow = -1;
+            rightClickDragging = false;
+        }
+    }
+
+    // Draw all right-click highlight circles
+    private void drawRightClickHighlights(Graphics2D g2) {
+        int margin = 4;
+        int diameter = Board.SIZE - 2 * margin;
+        g2.setStroke(new BasicStroke(4));
+        g2.setColor(new Color(102, 163, 108, 200));
+        for (Point p : rightClickHighlights) {
+            int x = p.x * Board.SIZE + margin;
+            int y = p.y * Board.SIZE + margin;
+            g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
+        }
+    }
+
+    // Draw all right-click arrows
+    private void drawRightClickArrows(Graphics2D g2) {
+        g2.setStroke(new BasicStroke(10.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.setColor(new Color(102, 163, 108, 200));
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        for (Arrow arrow : rightClickArrows) {
+            double startX = arrow.startCol * Board.SIZE + Board.SIZE / 2.0;
+            double startY = arrow.startRow * Board.SIZE + Board.SIZE / 2.0;
+            double endX = arrow.endCol * Board.SIZE + Board.SIZE / 2.0;
+            double endY = arrow.endRow * Board.SIZE + Board.SIZE / 2.0;
+
+            // Draw the line
+            g2.draw(new java.awt.geom.Line2D.Double(startX, startY, endX, endY));
+
+            // Draw arrowhead
+            double angle = Math.atan2(endY - startY, endX - startX);
+            double arrowLength = 45;
+            double arrowAngle = Math.toRadians(30);
+
+            double x1 = endX - arrowLength * Math.cos(angle - arrowAngle);
+            double y1 = endY - arrowLength * Math.sin(angle - arrowAngle);
+            double x2 = endX - arrowLength * Math.cos(angle + arrowAngle);
+            double y2 = endY - arrowLength * Math.sin(angle + arrowAngle);
+
+            int[] xPoints = {(int) endX, (int) x1, (int) x2};
+            int[] yPoints = {(int) endY, (int) y1, (int) y2};
+            g2.fillPolygon(xPoints, yPoints, 3);
+        }
+    }
+
     private void drawResignRed(int x, int y) {
         Graphics2D g2 = (Graphics2D) getGraphics();
         g2.setColor(new Color(255, 80, 80, 180));
@@ -568,14 +708,14 @@ public class GamePanel extends JPanel {
         g2.setFont(new Font("Roboto", Font.BOLD, 16));
         g2.setColor(Color.white);
 
-        // White's timer (bottom)
+        // White's timer
         String whiteTime = formatTime(whiteTimeRemaining);
         FontMetrics metrics = g2.getFontMetrics();
         int whiteTextX = timerX + (timerWidth - metrics.stringWidth(whiteTime)) / 2;
         int whiteTextY = timerWhiteY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
         g2.drawString(whiteTime, whiteTextX, whiteTextY);
 
-        // Black's timer (top)
+        // Black's timer
         String blackTime = formatTime(blackTimeRemaining);
         int blackTextX = timerX + (timerWidth - metrics.stringWidth(blackTime)) / 2;
         int blackTextY = timerBlackY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
@@ -585,6 +725,7 @@ public class GamePanel extends JPanel {
         if (!gm.gameOver && !gm.stalemate) {
             int activeY = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? timerWhiteY : timerBlackY;
             g2.setColor(new Color(255, 255, 255, 60));
+            g2.setStroke(new java.awt.BasicStroke(2));
             g2.drawRoundRect(timerX - 2, activeY - 2, timerWidth + 4, timerHeight + 4, 6, 6);
         }
     }
@@ -597,6 +738,7 @@ public class GamePanel extends JPanel {
         // Draw the background box for the log
         g2.setColor(new Color(10, 12, 16, 120));
         g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
+        g2.setStroke(new java.awt.BasicStroke(1.5f));
         g2.setColor(new Color(255, 255, 255, 30));
         g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
 
@@ -881,4 +1023,3 @@ public class GamePanel extends JPanel {
         return prevType == null ? startX : currentX + iconSize;
     }
 }
-

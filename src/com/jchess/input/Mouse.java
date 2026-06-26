@@ -6,16 +6,29 @@ import java.awt.event.MouseEvent;
 public class Mouse extends MouseAdapter {
 
     public int x, y;
-    public boolean pressed;
+    public boolean pressed;       // left button (or any non-right button)
+    public boolean rightPressed;  // right button only
 
     @Override
     public void mousePressed(MouseEvent e) {
-        pressed = true;
+        x = e.getX();
+        y = e.getY();
+        if (e.getButton() == MouseEvent.BUTTON3) {
+            rightPressed = true;
+        } else {
+            pressed = true;
+        }
     }
 
     @Override
     public void mouseReleased(MouseEvent e) {
-        pressed = false;
+        x = e.getX();
+        y = e.getY();
+        if (e.getButton() == MouseEvent.BUTTON3) {
+            rightPressed = false;
+        } else {
+            pressed = false;
+        }
     }
 
     @Override
