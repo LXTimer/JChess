@@ -60,6 +60,7 @@ public class GamePanel extends JPanel {
     private BufferedImage flipBoardIcon;
     private BufferedImage ResignIcon;
     private BufferedImage undoIcon;
+    private final GamePanelMoveLogRenderer moveLogRenderer;
     private boolean mousePressedLastFrame = false;
     private boolean rightPressedLastFrame = false;
     private boolean leftPressedLastFrame = false;
@@ -77,6 +78,7 @@ public class GamePanel extends JPanel {
     private java.awt.Rectangle navPrevRect   = new java.awt.Rectangle(); // <   go back one move
     private java.awt.Rectangle navNextRect   = new java.awt.Rectangle(); // >   go forward one move
     private java.awt.Rectangle navEndRect    = new java.awt.Rectangle(); // >|  go to end (live)
+    private boolean isPlayerWhite = true;
 
     // Constructor
     public GamePanel() {
@@ -91,6 +93,9 @@ public class GamePanel extends JPanel {
         flipBoardIcon = loadFlipBoardIcon();
         ResignIcon = loadResignIcon();
         undoIcon = loadUndoIcon();
+        moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, flipBoardIcon, ResignIcon, undoIcon,
+            flipButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect,
+            navStartRect, navPrevRect, navNextRect, navEndRect);
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
         addMouseWheelListener(e -> {
@@ -98,12 +103,32 @@ public class GamePanel extends JPanel {
             gm.scrollMoveLog(notches);
             repaint();
         });
+        
+        // Keyboard shortcuts
+        addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent e) {
+                handleKeyPress(e);
+            }
+        });
+        setFocusable(true);
+        requestFocus();
+    }
+
+    public void setPlayerColor(boolean isPlayerWhite) {
+        this.isPlayerWhite = isPlayerWhite;
+        gm.playerColor = isPlayerWhite ? GameManager.WHITE : GameManager.BLACK;
     }
 
     // Start method
     public void startGame(int initialTimeSeconds) {
         if (gameTimer != null && gameTimer.isRunning()) {
             return;
+        }
+
+        // If player is Black, flip the board initially
+        if (!isPlayerWhite) {
+            gm.toggleFlipBoard();
         }
 
         // Initialize timer
@@ -154,6 +179,56 @@ public class GamePanel extends JPanel {
         });
         gameTimer.setCoalesce(false);
         gameTimer.start();
+    }
+
+    // Handle keyboard shortcuts
+    private void handleKeyPress(java.awt.event.KeyEvent e) {
+        boolean shouldRepaint = true;
+        int keyCode = e.getKeyCode();
+        
+        switch (keyCode) {
+            case java.awt.event.KeyEvent.VK_LEFT:
+                // Navigate to previous move
+                gm.viewPrevious();
+                break;
+                
+            case java.awt.event.KeyEvent.VK_RIGHT:
+                // Navigate to next move
+                gm.viewNext();
+                break;
+                
+            case java.awt.event.KeyEvent.VK_UP:
+                // Navigate to start position
+                gm.viewStart();
+                break;
+                
+            case java.awt.event.KeyEvent.VK_DOWN:
+                // Navigate to end position (live game)
+                gm.viewEnd();
+                break;
+                
+            case java.awt.event.KeyEvent.VK_F:
+                // Flip board
+                gm.toggleFlipBoard();
+                break;
+                
+            case java.awt.event.KeyEvent.VK_Z:
+                // Undo last move (Ctrl+Z)
+                if ((e.getModifiers() & java.awt.event.InputEvent.CTRL_MASK) != 0) {
+                    if (gm.canUndo()) {
+                        gm.undoLastMove();
+                    }
+                }
+                break;
+                
+            default:
+                shouldRepaint = false;
+                break;
+        }
+        
+        if (shouldRepaint) {
+            repaint();
+        }
     }
 
     // Helper method for loading background images
@@ -340,46 +415,79 @@ public class GamePanel extends JPanel {
 
         // Draw the move log (only when not in promotion screen and game is not over)
         if (!gm.promotion && !gm.gameOver && !gm.stalemate) {
-            drawMoveLog(g2);
+            moveLogRenderer.drawMoveLog(g2);
         }
 
         // Display the game result when the game ends
         drawGameResult(g2);
     }
 
-    // Draw the dot for the highlight
+    // Draw the dot for the highlight, or a capture ring if the square has an enemy piece
     private void drawMoveDot(Graphics2D g2, int col, int row) {
-        double centerX = col * Board.SIZE + Board.SIZE / 2.0;
-        double centerY = row * Board.SIZE + Board.SIZE / 2.0;
-        double outerR = MOVE_DOT_OUTER_SIZE / 2.0;
-        double innerR = MOVE_DOT_INNER_SIZE / 2.0;
+        boolean isCapture = isCaptureSquare(col, row);
 
         boolean hovered = mouse.x >= col * Board.SIZE && mouse.x < (col + 1) * Board.SIZE
                        && mouse.y >= row * Board.SIZE && mouse.y < (row + 1) * Board.SIZE;
 
         Composite oldComposite = g2.getComposite();
 
-        if (hovered) {
-            // Draw a brighter, more opaque highlight on hover
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.50f));
-            g2.setColor(new Color(255, 255, 255));
-            g2.setStroke(new BasicStroke(3f));
-            g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+        if (isCapture) {
+            // Draw a circle tangent to the square (inscribed ring) for capture moves
+            int margin = 5;
+            int diameter = Board.SIZE - 2 * margin;
+            double x = col * Board.SIZE + margin;
+            double y = row * Board.SIZE + margin;
 
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
-            g2.setColor(new Color(255, 255, 255));
-            g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+            if (hovered) {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.50f));
+                g2.setColor(new Color(255, 255, 255));
+                g2.setStroke(new BasicStroke(5f));
+                g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
+            } else {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
+                g2.setColor(new Color(255, 255, 255, 180));
+                g2.setStroke(new BasicStroke(5f));
+                g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
+            }
         } else {
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
-            g2.setColor(new Color(255, 255, 255, 180));
-            g2.setStroke(new BasicStroke(3f));
-            g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+            // Regular move dot for non-capture moves
+            double centerX = col * Board.SIZE + Board.SIZE / 2.0;
+            double centerY = row * Board.SIZE + Board.SIZE / 2.0;
+            double outerR = MOVE_DOT_OUTER_SIZE / 2.0;
+            double innerR = MOVE_DOT_INNER_SIZE / 2.0;
 
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
-            g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+            if (hovered) {
+                // Draw a brighter, more opaque highlight on hover
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.50f));
+                g2.setColor(new Color(255, 255, 255));
+                g2.setStroke(new BasicStroke(3f));
+                g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+                g2.setColor(new Color(255, 255, 255));
+                g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+            } else {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
+                g2.setColor(new Color(255, 255, 255, 180));
+                g2.setStroke(new BasicStroke(3f));
+                g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
+
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
+                g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
+            }
         }
 
         g2.setComposite(oldComposite);
+    }
+
+    // Check if the square contains an enemy piece in the current simulation state (i.e., this is a capture move)
+    private boolean isCaptureSquare(int col, int row) {
+        for (Piece p : GameManager.simPieces) {
+            if (p.col == col && p.row == row && p.color != gm.currentColor) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Highlight the king when it is in check
@@ -437,22 +545,34 @@ public class GamePanel extends JPanel {
                 g2.drawImage(p.img, p.getX(p.col), p.getY(p.row), Board.SIZE, Board.SIZE, null);
             }
         } else {
+            boolean isPlayerTurn = (gm.currentColor == GameManager.WHITE) == isPlayerWhite;
+            boolean isFlipped = gm.isBoardFlipped();
+            
             g2.setFont(new Font("Roboto", Font.BOLD, 18));
+            
             if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
-                drawCenteredString(g2, "White's turn", SIDE_PANEL_CENTER_X - 65, WHITE_TURN_Y + 25);
+                // White's turn text goes to the side that has White pieces
+                // When board is flipped, White pieces are at the top
+                int turnY = isFlipped ? BLACK_TURN_Y - 10 : WHITE_TURN_Y + 25;
+                int checkY = isFlipped ? BLACK_CHECK_Y - 15 : WHITE_CHECK_Y + 25;
+                String turnText = isPlayerTurn ? "Your turn" : "White's turn";
+                drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
                 if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.BLACK) {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
                     g2.setColor(Color.red);
-                    // Draw a warning message when a king is in check
-                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, WHITE_CHECK_Y + 25);
+                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
                 }
             } else {
-                drawCenteredString(g2, "Black's turn", SIDE_PANEL_CENTER_X - 65, BLACK_TURN_Y - 10);
+                // Black's turn text goes to the side that has Black pieces
+                // When board is not flipped, Black pieces are at the top
+                int turnY = isFlipped ? WHITE_TURN_Y + 25 : BLACK_TURN_Y - 10;
+                int checkY = isFlipped ? WHITE_CHECK_Y + 25 : BLACK_CHECK_Y - 15;
+                String turnText = isPlayerTurn ? "Your turn" : "Black's turn";
+                drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
                 if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.WHITE) {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
                     g2.setColor(Color.red);
-                    // Draw a warning message when a king is in check
-                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, BLACK_CHECK_Y - 15);
+                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
                 }
             }
         }
@@ -642,25 +762,6 @@ public class GamePanel extends JPanel {
         g2.fillOval(x - 15, y - 15, 30, 30);
     }
 
-    private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction) {
-        int[] xs = new int[3];
-        int[] ys = {y , y - 5, y + 5};
-        if (direction.equals("left")){
-            xs = new int[]{x - 5, x + 5, x + 5};
-        } else if (direction.equals("right")){
-            xs = new int[]{x + 5, x - 5, x - 5};
-        }
-
-        boolean filled = true;
-        Color color = new Color(255, 255, 255, 200);
-        g2.setColor(color);
-        if (filled) {
-            g2.fillPolygon(xs, ys, 3);
-        } else {
-            g2.drawPolygon(xs, ys, 3);
-        }
-    }
-
     private void updateTimer() {
         if (gm.gameOver || gm.stalemate) {
             return;
@@ -699,274 +800,47 @@ public class GamePanel extends JPanel {
         int timerBlackY = SIDE_PANEL_Y + 15;
         int timerWhiteY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - timerHeight - 15;
 
+        // Determine which timer goes where based on board flip
+        boolean isFlipped = gm.isBoardFlipped();
+        int topTimerY = isFlipped ? timerWhiteY : timerBlackY;     // top timer
+        int bottomTimerY = isFlipped ? timerBlackY : timerWhiteY;  // bottom timer
+        int topColor = isFlipped ? GameManager.WHITE : GameManager.BLACK;
+        int bottomColor = isFlipped ? GameManager.BLACK : GameManager.WHITE;
+
         // Draw timer backgrounds
         g2.setColor(new Color(255, 255, 255, 30));
-        g2.fillRoundRect(timerX, timerWhiteY, timerWidth, timerHeight, 4, 4);
-        g2.fillRoundRect(timerX, timerBlackY, timerWidth, timerHeight, 4, 4);
+        g2.fillRoundRect(timerX, bottomTimerY, timerWidth, timerHeight, 4, 4);
+        g2.fillRoundRect(timerX, topTimerY, timerWidth, timerHeight, 4, 4);
 
         // Draw timer text
         g2.setFont(new Font("Roboto", Font.BOLD, 16));
         g2.setColor(Color.white);
 
-        // White's timer
-        String whiteTime = formatTime(whiteTimeRemaining);
         FontMetrics metrics = g2.getFontMetrics();
-        int whiteTextX = timerX + (timerWidth - metrics.stringWidth(whiteTime)) / 2;
-        int whiteTextY = timerWhiteY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
-        g2.drawString(whiteTime, whiteTextX, whiteTextY);
 
-        // Black's timer
-        String blackTime = formatTime(blackTimeRemaining);
-        int blackTextX = timerX + (timerWidth - metrics.stringWidth(blackTime)) / 2;
-        int blackTextY = timerBlackY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
-        g2.drawString(blackTime, blackTextX, blackTextY);
+        // Bottom timer (player at bottom side)
+        String bottomTime = formatTime(bottomColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
+        int bottomTextX = timerX + (timerWidth - metrics.stringWidth(bottomTime)) / 2;
+        int bottomTextY = bottomTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
+        g2.drawString(bottomTime, bottomTextX, bottomTextY);
+
+        // Top timer (player at top side)
+        String topTime = formatTime(topColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
+        int topTextX = timerX + (timerWidth - metrics.stringWidth(topTime)) / 2;
+        int topTextY = topTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
+        g2.drawString(topTime, topTextX, topTextY);
 
         // Highlight active player's timer
         if (!gm.gameOver && !gm.stalemate) {
-            int activeY = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? timerWhiteY : timerBlackY;
+            int activeTimerY;
+            if (gm.currentColor == bottomColor) {
+                activeTimerY = bottomTimerY;
+            } else {
+                activeTimerY = topTimerY;
+            }
             g2.setColor(new Color(255, 255, 255, 60));
             g2.setStroke(new java.awt.BasicStroke(2));
-            g2.drawRoundRect(timerX - 2, activeY - 2, timerWidth + 4, timerHeight + 4, 6, 6);
-        }
-    }
-
-    private void drawMoveLog(Graphics2D g2) {
-        int boxX = SIDE_PANEL_X + 16;
-        int boxY = 150;
-        int boxWidth = SIDE_PANEL_WIDTH - 32;
-        int boxHeight = 300;
-        // Draw the background box for the log
-        g2.setColor(new Color(10, 12, 16, 120));
-        g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
-        g2.setStroke(new java.awt.BasicStroke(1.5f));
-        g2.setColor(new Color(255, 255, 255, 30));
-        g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
-
-        // Header
-        g2.setFont(new Font("Roboto", Font.BOLD, 13));
-        g2.setColor(new Color(160, 170, 185));
-        g2.drawString("MOVE LOG", boxX + 12, boxY + 22);
-
-        // Draw flip button in top right corner
-        int buttonWidth = 30;
-        int buttonHeight = 20;
-        int buttonX = boxX + boxWidth - buttonWidth - 10;
-        int buttonY = boxY + 5;
-        flipButtonRect.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
-
-        // Resign buttons for both players
-        int resignButtonWidth = 30;
-        int resignButtonHeight = 30;
-        int resignButtonX = boxX + boxWidth - resignButtonWidth - 10;
-        int undoButtonWidth = 30;
-        int buttonSpacing = 8;
-        int undoButtonX = resignButtonX - undoButtonWidth - buttonSpacing;
-        int resignBlackY = boxY + boxHeight - resignButtonHeight - 310;
-        int resignWhiteY = boxY + boxHeight - resignButtonHeight + 40;
-        resignBlackRect.setBounds(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight);
-        resignWhiteRect.setBounds(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight);
-        undoWhiteRect.setBounds(undoButtonX, resignWhiteY, undoButtonWidth, resignButtonHeight);
-        undoBlackRect.setBounds(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight);
-
-        // Navigation buttons for move log:
-        int navButtonHeight = boxY + 54 - (boxY + 32);
-        int navButtonWidth = (boxX + boxWidth - 10 - (boxX + 32)) / 4 + 5;
-        int navButtonX1 = boxX + 10;
-        int navButtonX2 = boxX + 10 + navButtonWidth;
-        int navButtonX3 = boxX + 10 + 2 * navButtonWidth;
-        int navButtonX4 = boxX + 10 + 3 * navButtonWidth;
-        int navButtonY = boxY + 32;
-
-        // Assign rects in the correct semantic order
-        navStartRect.setBounds(navButtonX1, navButtonY, navButtonWidth, navButtonHeight); // |<
-        navPrevRect .setBounds(navButtonX2, navButtonY, navButtonWidth, navButtonHeight); // <
-        navNextRect .setBounds(navButtonX3, navButtonY, navButtonWidth, navButtonHeight); // >
-        navEndRect  .setBounds(navButtonX4, navButtonY, navButtonWidth, navButtonHeight); // >|
-
-        // Check hover states for buttons
-        boolean canUndo = gm.canUndo();
-        boolean hoverFlip = flipButtonRect.contains(mouse.x, mouse.y);
-        boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
-        boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
-        boolean hoverResignWhite = resignWhiteRect.contains(mouse.x, mouse.y);
-        boolean hoverResignBlack = resignBlackRect.contains(mouse.x, mouse.y);
-        boolean hoverNavStart = navStartRect.contains(mouse.x, mouse.y);
-        boolean hoverNavPrev  = navPrevRect.contains(mouse.x, mouse.y);
-        boolean hoverNavNext  = navNextRect.contains(mouse.x, mouse.y);
-        boolean hoverNavEnd   = navEndRect.contains(mouse.x, mouse.y);
-
-        // Draw flip button
-        g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 220, 180));
-        g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
-        g2.setColor(new Color(200, 200, 200));
-        g2.setStroke(new java.awt.BasicStroke(1.5f));
-
-        Color navHoverColor = new Color(120, 210, 120, 220);
-        Color navBaseColor = new Color(0, 0, 0, 200);
-
-        // Draw undo buttons
-        Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(80, 80, 80, 180);
-        g2.setColor(hoverUndoWhite ? navHoverColor : undoBase);
-        g2.fillRoundRect(undoButtonX, resignWhiteY, undoButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(hoverUndoBlack ? navHoverColor : undoBase);
-        g2.fillRoundRect(undoButtonX, resignBlackY, undoButtonWidth, resignButtonHeight, 4, 4);
-
-        // Draw undo icon
-        if (undoIcon != null) {
-            java.awt.Composite oldComposite = g2.getComposite();
-            if (!canUndo) {
-                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
-            }
-            g2.drawImage(undoIcon, undoButtonX + (undoButtonWidth - undoIcon.getWidth()) / 2,
-                        resignWhiteY + (resignButtonHeight - undoIcon.getHeight()) / 2, null);
-            g2.drawImage(undoIcon, undoButtonX + (undoButtonWidth - undoIcon.getWidth()) / 2,
-                        resignBlackY + (resignButtonHeight - undoIcon.getHeight()) / 2, null);
-            g2.setComposite(oldComposite);
-        }
-
-        // Draw resign buttons
-        g2.setColor(hoverResignWhite ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
-        g2.fillRoundRect(resignButtonX, resignWhiteY, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(hoverResignBlack ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
-        g2.fillRoundRect(resignButtonX, resignBlackY, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(new Color(200, 200, 200));
-
-        // Draw flip icon
-        if (flipBoardIcon != null) {
-            g2.drawImage(flipBoardIcon, buttonX + (buttonWidth - flipBoardIcon.getWidth()) / 2, 
-                        buttonY + (buttonHeight - flipBoardIcon.getHeight()) / 2, null);
-
-        }
-
-        if (ResignIcon != null) {
-            g2.drawImage(ResignIcon, resignButtonX + (resignButtonWidth - ResignIcon.getWidth()) / 2, 
-                        resignWhiteY + (resignButtonHeight - ResignIcon.getHeight()) / 2, null);
-        }
-
-         if (ResignIcon != null) {
-            g2.drawImage(ResignIcon, resignButtonX + (resignButtonWidth - ResignIcon.getWidth()) / 2, 
-                        resignBlackY + (resignButtonHeight - ResignIcon.getHeight()) / 2, null);
-        }
-
-        // Underline header
-        g2.setColor(new Color(255, 255, 255, 20));
-        g2.drawLine(boxX + 10, boxY + 32, boxX + boxWidth - 10, boxY + 32);
-
-        // Table headers: No., White, Black
-        int col1X = boxX + 15;
-        int col2X = boxX + 75;
-        int col3X = boxX + 155;
-        int rowStartY = boxY + 48;
-        int rowHeight = 22;
-
-        // Draw navigation buttons and dividers
-        int dividerY1 = boxY + 32;
-        int dividerY2 = rowStartY + 6;
-        g2.setColor(navStartRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
-        g2.fillRect(navButtonX1, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(navPrevRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
-        g2.fillRect(navButtonX2, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(navNextRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
-        g2.fillRect(navButtonX3, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(navEndRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
-        g2.fillRect(navButtonX4, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(new Color(255, 255, 255, 40));
-        g2.drawLine(navButtonX2, dividerY1, navButtonX2, dividerY2);
-        g2.drawLine(navButtonX3, dividerY1, navButtonX3, dividerY2);
-        g2.drawLine(navButtonX4, dividerY1, navButtonX4, dividerY2);
-
-        // Draw nav triangles:
-        //   slot 1 = double-left  (|<  NavStart)
-        //   slot 2 = single-left  (<   NavPrev)
-        //   slot 3 = single-right (>   NavNext)
-        //   slot 4 = double-right (>|  NavEnd)
-        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "left");
-        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "left");
-        drawNaviTriangle(g2, navButtonX2 + navButtonWidth / 2,     navButtonY + navButtonHeight / 2, "left");
-        drawNaviTriangle(g2, navButtonX3 + navButtonWidth / 2,     navButtonY + navButtonHeight / 2, "right");
-        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "right");
-        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "right");
-
-        // Divider under table headers
-        g2.setColor(new Color(255, 255, 255, 15));
-        g2.drawLine(boxX + 10, rowStartY + 6, boxX + boxWidth - 10, rowStartY + 6);
-
-        // Table headers: No., White, Black
-        int startY = rowStartY + 22;
-        int totalMoves = gm.moves.size();
-        int totalPairs = (totalMoves + 1) / 2;
-        int maxVisible = 10;
-        
-        // Move log entries
-        g2.setFont(new Font("Roboto", Font.PLAIN, 13));
-        // activeMoveIndex is the index of the move that should be highlighted as the "current" move in the log
-        int activeMoveIndex = (gm.getViewMoveIndex() == -1) ? (totalMoves - 1) : (gm.getViewMoveIndex() - 1);
-        for (int i = 0; i < maxVisible; i++) {
-            int pairIndex = gm.scrollStartLine + i;
-            if (pairIndex >= totalPairs) {
-                break;
-            }
-
-            int currentY = startY + i * rowHeight;
-
-            // Draw move number
-            g2.setColor(new Color(110, 120, 135));
-            g2.drawString((pairIndex + 1) + ".", col1X, currentY);
-
-            // Draw White's move
-            int whiteMoveIndex = pairIndex * 2;
-            if (whiteMoveIndex < totalMoves) {
-                com.jchess.util.MoveRecord whiteMove = gm.moves.get(whiteMoveIndex);
-                boolean isLastMove = (whiteMoveIndex == activeMoveIndex);
-
-                if (isLastMove) {
-                    // Highlight last move in the log
-                    g2.setColor(new Color(0, 120, 215, 60)); // soft blue highlight
-                    g2.fillRoundRect(col2X - 5, currentY - 14, 65, 18, 4, 4);
-                    g2.setColor(new Color(255, 255, 255));
-                } else {
-                    g2.setColor(new Color(210, 215, 225));
-                }
-                g2.drawString(whiteMove.san, col2X, currentY);
-            }
-
-            // Draw Black's move
-            int blackMoveIndex = pairIndex * 2 + 1;
-            if (blackMoveIndex < totalMoves) {
-                com.jchess.util.MoveRecord blackMove = gm.moves.get(blackMoveIndex);
-                boolean isLastMove = (blackMoveIndex == activeMoveIndex);
-
-                if (isLastMove) {
-                    // Highlight last move in the log
-                    g2.setColor(new Color(0, 120, 215, 60)); // soft blue highlight
-                    g2.fillRoundRect(col3X - 5, currentY - 14, 65, 18, 4, 4);
-                    g2.setColor(new Color(255, 255, 255));
-                } else {
-                    g2.setColor(new Color(210, 215, 225));
-                }
-                g2.drawString(blackMove.san, col3X, currentY);
-            }
-        }
-
-        // Draw scrollbar if scrollable
-        if (totalPairs > maxVisible) {
-            int scrollbarX = boxX + boxWidth - 8;
-            int scrollbarY = startY - 12;
-            int scrollbarHeight = boxHeight - (scrollbarY - boxY) - 10;
-            int scrollbarWidth = 4;
-
-            // Track
-            g2.setColor(new Color(255, 255, 255, 10));
-            g2.fillRoundRect(scrollbarX, scrollbarY, scrollbarWidth, scrollbarHeight, 2, 2);
-
-            // Thumb
-            int thumbHeight = scrollbarHeight * maxVisible / totalPairs;
-            if (thumbHeight < 15)
-                thumbHeight = 15;
-            int thumbY = scrollbarY + (scrollbarHeight - thumbHeight) * gm.scrollStartLine / (totalPairs - maxVisible);
-
-            g2.setColor(new Color(255, 255, 255, 60));
-            g2.fillRoundRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight, 2, 2);
+            g2.drawRoundRect(timerX - 2, activeTimerY - 2, timerWidth + 4, timerHeight + 4, 6, 6);
         }
     }
 
