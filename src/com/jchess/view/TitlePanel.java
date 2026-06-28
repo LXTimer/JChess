@@ -13,6 +13,8 @@ public class TitlePanel extends JPanel {
     private GamePanel gamePanel;
     private JButton startButton;
     private JComboBox<String> timeComboBox;
+    private JComboBox<String> colorComboBox;
+    public boolean isPlayerWhite = true; // Default to white, can be changed based on selection
 
     // Fade effect fields
     private float alpha = 1.0f;
@@ -20,6 +22,7 @@ public class TitlePanel extends JPanel {
     private Timer fadeTimer;
     private BufferedImage iconImage;
     private BufferedImage backgroundImage;
+
 
     public TitlePanel(GamePanel gamePanel) {
         this.gamePanel = gamePanel;
@@ -62,10 +65,20 @@ public class TitlePanel extends JPanel {
         timeComboBox.setForeground(Color.WHITE);
         add(timeComboBox);
 
+        // Color selector
+        String[] colorOptions = {"Random", "White", "Black"};
+        colorComboBox = new JComboBox<>(colorOptions);
+        colorComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
+        colorComboBox.setBounds(325, 420, 250, 35);
+        colorComboBox.setSelectedItem("Random");
+        colorComboBox.setBackground(new Color(60, 60, 60));
+        colorComboBox.setForeground(Color.WHITE);
+        add(colorComboBox);
+
         // Create start button
         startButton = new JButton("Start Game");
         startButton.setFont(new Font("Roboto", Font.PLAIN, 24));
-        startButton.setBounds(300, 450, 300, 60);
+        startButton.setBounds(300, 480, 300, 60);
         startButton.setBackground(new Color(100, 150, 200));
         startButton.setForeground(Color.WHITE);
         startButton.setFocusPainted(false);
@@ -76,6 +89,13 @@ public class TitlePanel extends JPanel {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int selectedMinutes = Integer.parseInt((timeComboBox.getSelectedItem()).toString().split(" ")[0]);
+                String selectedColor = (String) colorComboBox.getSelectedItem();
+                if (selectedColor.equals("Random")) {
+                    isPlayerWhite = Math.random() < 0.5;
+                } else {
+                    isPlayerWhite = selectedColor.equals("White");
+                }
+                gamePanel.setPlayerColor(isPlayerWhite);
                 startGame(selectedMinutes * 60);
             }
 

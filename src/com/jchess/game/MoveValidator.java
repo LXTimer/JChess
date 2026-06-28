@@ -172,7 +172,7 @@ public class MoveValidator {
             int savedRookCol = rook != null ? rook.col : 0;
             int savedRookX   = rook != null ? rook.x   : 0;
 
-            checkCastling();
+            checkCastling(piece);
             legal = !castlingThroughCheck && !isKingInCheck(piece.color);
 
             if (rook != null) {
@@ -207,10 +207,12 @@ public class MoveValidator {
         gm.copyPieces(gm.pieces, GameManager.simPieces);
     }
 
-    public void checkCastling() {
+    public void checkCastling(Piece king) {
         if (GameManager.castlingP != null) {
-            GameManager.castlingP.col = (GameManager.castlingP.col == 0) ? 3 : 5;
+            GameManager.castlingP.col = king.col > king.preCol ? king.col - 1 : king.col + 1;
+            GameManager.castlingP.row = king.row;
             GameManager.castlingP.x = GameManager.castlingP.getX(GameManager.castlingP.col);
+            GameManager.castlingP.y = GameManager.castlingP.getY(GameManager.castlingP.row);
         }
     }
 

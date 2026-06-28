@@ -16,6 +16,7 @@ public class GameManager {
     public static final int WHITE = 0;
     public static final int BLACK = 1;
     public static boolean isBoardFlipped = false;
+    public int playerColor = WHITE;
 
     // Declare all the variables
     public ArrayList<Piece> pieces = new ArrayList<>();
@@ -25,17 +26,6 @@ public class GameManager {
     public ArrayList<MoveRecord> moves = new ArrayList<>();
     public ArrayList<Piece> capturedPieces = new ArrayList<>();
     public int scrollStartLine = 0;
-
-    private final ArrayList<ArrayList<Piece>> piecesHistory = new ArrayList<>();
-    private final ArrayList<ArrayList<Piece>> simPiecesHistory = new ArrayList<>();
-    private final ArrayList<ArrayList<Piece>> capturedPiecesHistory = new ArrayList<>();
-    private final ArrayList<Integer> currentColorHistory = new ArrayList<>();
-    private final ArrayList<Boolean> gameOverHistory = new ArrayList<>();
-    private final ArrayList<Boolean> stalemateHistory = new ArrayList<>();
-    private final ArrayList<Boolean> whiteResignHistory = new ArrayList<>();
-    private final ArrayList<Boolean> blackResignHistory = new ArrayList<>();
-    private final ArrayList<Boolean> boardFlippedHistory = new ArrayList<>();
-    private ArrayList<Piece> preMoveSnapshot;
 
     public static Piece castlingP;
     public Piece activeP;
@@ -65,10 +55,12 @@ public class GameManager {
     private int cachedCapturedCount = -1;
 
     private final MoveValidator moveValidator;
+    private final GameHistoryManager historyManager;
 
     public GameManager() {
         this.mouse = new Mouse();
         this.moveValidator = new MoveValidator(this);
+        this.historyManager = new GameHistoryManager(this);
         setPieces();
         copyPieces(pieces, simPieces);
     }
@@ -76,6 +68,7 @@ public class GameManager {
     public GameManager(Mouse mouse) {
         this.mouse = mouse;
         this.moveValidator = new MoveValidator(this);
+        this.historyManager = new GameHistoryManager(this);
         setPieces();
         copyPieces(pieces, simPieces);
     }
@@ -114,80 +107,12 @@ public class GameManager {
         tgt.addAll(src);
     }
 
-    private ArrayList<Piece> copyPieceList(ArrayList<Piece> src) {
-        ArrayList<Piece> clone = new ArrayList<>();
-        for (Piece p : src) {
-            clone.add(p.copy());
-        }
-        return clone;
-    }
-
-    private void capturePreMoveSnapshot() {
-        preMoveSnapshot = copyPieceList(pieces);
-    }
-
-    private void saveHistorySnapshot() {
-        piecesHistory.add(preMoveSnapshot != null ? preMoveSnapshot : copyPieceList(pieces));
-        simPiecesHistory.add(copyPieceList(pieces));
-        capturedPiecesHistory.add(copyPieceList(capturedPieces));
-        currentColorHistory.add(currentColor);
-        gameOverHistory.add(gameOver);
-        stalemateHistory.add(stalemate);
-        whiteResignHistory.add(whiteResign);
-        blackResignHistory.add(blackResign);
-        boardFlippedHistory.add(boardFlipped);
-        preMoveSnapshot = null;
-    }
-
     public boolean canUndo() {
-        return !moves.isEmpty() && !piecesHistory.isEmpty();
+        return historyManager.canUndo();
     }
 
     public void undoLastMove() {
-        if (!canUndo()) {
-            return;
-        }
-
-        animations.clear();
-
-        int lastIndex = piecesHistory.size() - 1;
-        pieces = piecesHistory.remove(lastIndex);
-        copyPieces(pieces, simPieces);
-        capturedPieces = capturedPiecesHistory.remove(lastIndex);
-        currentColor = currentColorHistory.remove(lastIndex);
-        gameOver = gameOverHistory.remove(lastIndex);
-        stalemate = stalemateHistory.remove(lastIndex);
-        whiteResign = whiteResignHistory.remove(lastIndex);
-        blackResign = blackResignHistory.remove(lastIndex);
-        boardFlipped = boardFlippedHistory.remove(lastIndex);
-        isBoardFlipped = boardFlipped;
-
-        if (!simPiecesHistory.isEmpty()) {
-            simPiecesHistory.remove(simPiecesHistory.size() - 1);
-        }
-
-        if (!moves.isEmpty()) {
-            moves.remove(moves.size() - 1);
-        }
-
-        activeP = null;
-        legalMoveSquares.clear();
-        promotion = false;
-        promoPieces.clear();
-        castlingP = null;
-        checkingP = null;
-        preMoveSnapshot = null;
-        cachedSortedWhite = null;
-        cachedSortedBlack = null;
-        cachedCapturedCount = capturedPieces.size();
-
-        viewMoveIndex = -1;
-
-        if (!gameOver && !stalemate) {
-            checkingP = moveValidator.findCheckingPiece(getOppositeColor(currentColor));
-        }
-
-        scrollToBottom();
+        historyManager.undoLastMove();
     }
 
     private void updateAnimations() {
@@ -243,7 +168,7 @@ public class GameManager {
                         activeP = clickedPiece;
                         canMove = false;
                         validSquare = false;
-                        capturePreMoveSnapshot();
+                        historyManager.capturePreMoveSnapshot();
                         moveValidator.refreshLegalMoveSquares();
                     } else {
                         simulate();
@@ -283,7 +208,7 @@ public class GameManager {
                 activeP = p;
                 canMove = false;
                 validSquare = false;
-                capturePreMoveSnapshot();
+                historyManager.capturePreMoveSnapshot();
                 moveValidator.refreshLegalMoveSquares();
                 return;
             }
@@ -291,7 +216,7 @@ public class GameManager {
     }
 
     private void commitMove() {
-        viewMoveIndex = -1;
+        historyManager.viewEnd();
 
         ArrayList<Piece> savedSimPieces = new ArrayList<>(simPieces);
 
@@ -311,7 +236,7 @@ public class GameManager {
             toRow = 7 - toRow;
         }
 
-        saveHistorySnapshot();
+        historyManager.saveHistorySnapshot();
         copyPieces(savedSimPieces, simPieces);
 
         copyPieces(simPieces, pieces);
@@ -320,6 +245,7 @@ public class GameManager {
         
         if (castlingP != null) {
             animations.add(new PieceAnimation(castlingP, castlingP.preCol, castlingP.preRow, castlingP.col, castlingP.row));
+            castlingP = null;
         }
         
         legalMoveSquares.clear();
@@ -424,7 +350,7 @@ public class GameManager {
             }
 
             boolean castlingThroughCheck = moveValidator.isCastlingThroughCheck(activeP);
-            moveValidator.checkCastling();
+            moveValidator.checkCastling(activeP);
 
             if (!castlingThroughCheck && !moveValidator.isKingInCheck(currentColor)) {
                 validSquare = true;
@@ -514,23 +440,25 @@ public class GameManager {
             square.x = 7 - square.x;
             square.y = 7 - square.y;
         }
-        
-        if (castlingP != null) {
-            castlingP.col = 7 - castlingP.col;
-            castlingP.row = 7 - castlingP.row;
-        }
-    }
-
-    public int getFlippedCol(int col) {
-        return 7 - col;
-    }
-
-    public int getFlippedRow(int row) {
-        return 7 - row;
+        castlingP = null;
     }
 
     public boolean isBoardFlipped() {
         return boardFlipped;
+    }
+
+    void clearAnimations() {
+        animations.clear();
+    }
+
+    void resetCapturedPieceCache() {
+        cachedSortedWhite = null;
+        cachedSortedBlack = null;
+        cachedCapturedCount = capturedPieces.size();
+    }
+    
+    public int getPlayerColor() {
+        return playerColor;
     }
 
     private int getMouseColOnBoard() {
@@ -681,156 +609,27 @@ public class GameManager {
         return sum;
     }
 
-    public int viewMoveIndex = -1;
-
     public void viewStart() {
-        viewMoveIndex = 0;
+        historyManager.viewStart();
     }
 
     public void viewEnd() {
-        viewMoveIndex = -1;
+        historyManager.viewEnd();
     }
 
     public void viewNext() {
-        if (viewMoveIndex == -1) {
-            return;
-        }
-        if (viewMoveIndex < moves.size()) {
-            viewMoveIndex++;
-        }
-        if (viewMoveIndex >= moves.size()) {
-            viewMoveIndex = -1;
-        }
+        historyManager.viewNext();
     }
 
     public void viewPrevious() {
-        if (viewMoveIndex == -1) {
-            viewMoveIndex = moves.size() - 1;
-        } else if (viewMoveIndex > 0) {
-            viewMoveIndex--;
-        }
+        historyManager.viewPrevious();
     }
 
     public int getViewMoveIndex() {
-        return viewMoveIndex;
+        return historyManager.getViewMoveIndex();
     }
 
     public ArrayList<Piece> getDisplayPieces() {
-        if (viewMoveIndex == -1) {
-            return simPieces;
-        }
-        return getBoardAtMoveCount(viewMoveIndex);
-    }
-
-    private ArrayList<Piece> getBoardAtMoveCount(int moveCount) {
-        ArrayList<Piece> board = new ArrayList<>();
-        for (int col = 0; col < 8; col++) {
-            board.add(new Pawn(col, 6, WHITE));
-            board.add(new Pawn(col, 1, BLACK));
-        }
-        int[] backRankCols = {0, 7, 1, 6, 2, 5, 3, 4};
-        for (int i = 0; i < backRankCols.length; i++) {
-            int col = backRankCols[i];
-            Piece whitePiece, blackPiece;
-            if      (i < 2) { whitePiece = new Rook(col, 7, WHITE);   blackPiece = new Rook(col, 0, BLACK); }
-            else if (i < 4) { whitePiece = new Knight(col, 7, WHITE); blackPiece = new Knight(col, 0, BLACK); }
-            else if (i < 6) { whitePiece = new Bishop(col, 7, WHITE); blackPiece = new Bishop(col, 0, BLACK); }
-            else if (i < 7) { whitePiece = new Queen(col, 7, WHITE);  blackPiece = new Queen(col, 0, BLACK); }
-            else            { whitePiece = new King(col, 7, WHITE);   blackPiece = new King(col, 0, BLACK); }
-            board.add(whitePiece);
-            board.add(blackPiece);
-        }
-
-        if (boardFlipped) {
-            for (Piece p : board) {
-                p.col = 7 - p.col;
-                p.row = 7 - p.row;
-                p.preCol = 7 - p.preCol;
-                p.preRow = 7 - p.preRow;
-                p.x = p.getX(p.col);
-                p.y = p.getY(p.row);
-            }
-        }
-
-        int applyCount = Math.max(0, Math.min(moveCount, moves.size()));
-        for (int i = 0; i < applyCount; i++) {
-            applyMoveToBoard(board, moves.get(i));
-        }
-
-        return board;
-    }
-
-    private void applyMoveToBoard(ArrayList<Piece> board, MoveRecord mr) {
-        int fromCol = boardFlipped ? 7 - mr.fromCol : mr.fromCol;
-        int fromRow = boardFlipped ? 7 - mr.fromRow : mr.fromRow;
-        int toCol   = boardFlipped ? 7 - mr.toCol   : mr.toCol;
-        int toRow   = boardFlipped ? 7 - mr.toRow   : mr.toRow;
-
-        Piece mover = null;
-        for (Piece p : board) {
-            if (p.col == fromCol && p.row == fromRow && p.color == mr.color) {
-                if (p.type == mr.type) {
-                    mover = p;
-                    break;
-                }
-                if (mover == null) mover = p;
-            }
-        }
-        if (mover == null) {
-            return;
-        }
-
-        if (mr.isCapture) {
-            Piece captured = null;
-            for (Piece p : board) {
-                if (p.col == toCol && p.row == toRow && p.color != mr.color) {
-                    captured = p;
-                    break;
-                }
-            }
-            if (captured == null) {
-                for (Piece p : board) {
-                    if (p.col == toCol && p.row == fromRow && p.color != mr.color && p.type == PieceType.PAWN) {
-                        captured = p;
-                        break;
-                    }
-                }
-            }
-            if (captured != null) {
-                board.remove(captured);
-            }
-        }
-
-        if (mr.isCastling && mr.type == PieceType.KING) {
-            int rookFromCol = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? 7 : 0) : (mr.toCol > mr.fromCol ? 7 : 0);
-            int rookToCol   = boardFlipped ? 7 - (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1): (mr.toCol > mr.fromCol ? mr.toCol - 1 : mr.toCol + 1);
-            for (Piece p : board) {
-                if (p.col == rookFromCol && p.row == fromRow && p.color == mr.color && p.type == PieceType.ROOK) {
-                    p.col = rookToCol;
-                    p.row = toRow;
-                    p.x = p.getX(p.col);
-                    p.y = p.getY(p.row);
-                    break;
-                }
-            }
-        }
-
-        mover.col = toCol;
-        mover.row = toRow;
-        mover.x = mover.getX(mover.col);
-        mover.y = mover.getY(mover.row);
-        mover.moved = true;
-
-        if (mr.promotionType != null) {
-            Piece promoted = null;
-            switch (mr.promotionType) {
-                case "ROOK":   promoted = new Rook(mover.col, mover.row, mover.color);   break;
-                case "KNIGHT": promoted = new Knight(mover.col, mover.row, mover.color); break;
-                case "BISHOP": promoted = new Bishop(mover.col, mover.row, mover.color); break;
-                default:       promoted = new Queen(mover.col, mover.row, mover.color);  break;
-            }
-            board.remove(mover);
-            board.add(promoted);
-        }
+        return historyManager.getDisplayPieces();
     }
 }
