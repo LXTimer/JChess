@@ -138,6 +138,20 @@ public class GameHistoryManager {
         return viewMoveIndex;
     }
 
+    public void resetHistory() {
+        piecesHistory.clear();
+        simPiecesHistory.clear();
+        capturedPiecesHistory.clear();
+        currentColorHistory.clear();
+        gameOverHistory.clear();
+        stalemateHistory.clear();
+        whiteResignHistory.clear();
+        blackResignHistory.clear();
+        boardFlippedHistory.clear();
+        preMoveSnapshot = null;
+        viewMoveIndex = -1;
+    }
+
     public ArrayList<Piece> getDisplayPieces() {
         if (viewMoveIndex == -1) {
             return GameManager.simPieces;

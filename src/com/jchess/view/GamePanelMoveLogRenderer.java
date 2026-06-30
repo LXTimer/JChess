@@ -4,6 +4,7 @@ import com.jchess.game.GameManager;
 import com.jchess.input.Mouse;
 import com.jchess.model.Board;
 import com.jchess.model.Piece;
+import com.jchess.model.piece.PieceType;
 import com.jchess.util.MoveRecord;
 
 import java.awt.BasicStroke;
@@ -26,6 +27,7 @@ public class GamePanelMoveLogRenderer {
     private final Rectangle resignBlackRect;
     private final Rectangle undoWhiteRect;
     private final Rectangle undoBlackRect;
+    private final Rectangle fenButtonRect;
     private final Rectangle navStartRect;
     private final Rectangle navPrevRect;
     private final Rectangle navNextRect;
@@ -35,6 +37,64 @@ public class GamePanelMoveLogRenderer {
     private static final int SIDE_PANEL_Y = 45;
     private static final int SIDE_PANEL_WIDTH = GamePanel.WIDTH - SIDE_PANEL_X - 16;
     private static final int SIDE_PANEL_HEIGHT = 510;
+
+    // Unicode chess symbols for piece types
+    private static final String[] UNICODE_PIECES = {
+        "\u2659", // White Pawn
+        "\u2658", // White Knight
+        "\u2657", // White Bishop
+        "\u2656", // White Rook
+        "\u2655", // White Queen
+        "\u2654", // White King
+        "\u265F", // Black Pawn
+        "\u265E", // Black Knight
+        "\u265D", // Black Bishop
+        "\u265C", // Black Rook
+        "\u265B", // Black Queen
+        "\u265A"  // Black King
+    };
+
+    // Convert a SAN string to use Unicode chess symbols
+    // When board is flipped, invert the colors so the display matches the player's perspective
+    private String sanToUnicode(String san, int color) {
+        if (gm.isBoardFlipped()) {
+            color = (color == 0) ? 1 : 0;
+        }
+        if (san == null || san.isEmpty()) return san;
+        
+        // Handle castling - no piece symbol needed
+        if (san.startsWith("O-O")) return san;
+        
+        // Get the first character which is the piece letter (K, Q, R, B, N)
+        // Pawn moves don't have a letter prefix
+        char firstChar = san.charAt(0);
+        String unicodeSymbol = null;
+        
+        if (firstChar >= 'A' && firstChar <= 'Z') {
+            
+            switch (firstChar) {
+                case 'K': unicodeSymbol = (color == 0) ? "\u2654" : "\u265A"; break; // King
+                case 'Q': unicodeSymbol = (color == 0) ? "\u2655" : "\u265B"; break; // Queen
+                case 'R': unicodeSymbol = (color == 0) ? "\u2656" : "\u265C"; break; // Rook
+                case 'B': unicodeSymbol = (color == 0) ? "\u2657" : "\u265D"; break; // Bishop
+                case 'N': unicodeSymbol = (color == 0) ? "\u2658" : "\u265E"; break; // Knight
+            }
+        }
+        
+        if (unicodeSymbol != null) {
+            return unicodeSymbol + san.substring(1);
+        }
+        return san;
+    }
+
+    // Format time spent on a move (e.g., "5s" or "1m02s")
+    private String formatMoveTime(int seconds) {
+        if (seconds <= 0) return "";
+        if (seconds < 60) return seconds + "s";
+        int minutes = seconds / 60;
+        int secs = seconds % 60;
+        return minutes + "m" + (secs < 10 ? "0" : "") + secs + "s";
+    }
 
     public GamePanelMoveLogRenderer(
             GameManager gm,
@@ -47,6 +107,7 @@ public class GamePanelMoveLogRenderer {
             Rectangle resignBlackRect,
             Rectangle undoWhiteRect,
             Rectangle undoBlackRect,
+            Rectangle fenButtonRect,
             Rectangle navStartRect,
             Rectangle navPrevRect,
             Rectangle navNextRect,
@@ -61,6 +122,7 @@ public class GamePanelMoveLogRenderer {
         this.resignBlackRect = resignBlackRect;
         this.undoWhiteRect = undoWhiteRect;
         this.undoBlackRect = undoBlackRect;
+        this.fenButtonRect = fenButtonRect;
         this.navStartRect = navStartRect;
         this.navPrevRect = navPrevRect;
         this.navNextRect = navNextRect;
@@ -72,6 +134,11 @@ public class GamePanelMoveLogRenderer {
         int boxY = 150;
         int boxWidth = SIDE_PANEL_WIDTH - 32;
         int boxHeight = 300;
+        int viewMoveIndex = gm.getViewMoveIndex();
+        int totalMoves = gm.moves.size();
+        int totalPairs = (totalMoves + 1) / 2;
+        int activeMoveIndex = (viewMoveIndex == -1) ? (totalMoves - 1) : (viewMoveIndex - 1);
+        boolean isFlipped = gm.isBoardFlipped();
 
         g2.setColor(new Color(10, 12, 16, 120));
         g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
@@ -86,10 +153,12 @@ public class GamePanelMoveLogRenderer {
         int buttonWidth = 30;
         int buttonHeight = 20;
         int buttonX = boxX + boxWidth - buttonWidth - 10;
+        int fenButtonWidth = 44;
+        int fenButtonX = buttonX - fenButtonWidth - 8;
         int buttonY = boxY + 5;
         flipButtonRect.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
+        fenButtonRect.setBounds(fenButtonX, buttonY, fenButtonWidth, buttonHeight);
 
-        boolean isFlipped = gm.isBoardFlipped();
         int resignButtonWidth = 30;
         int resignButtonHeight = 30;
         int resignButtonX = boxX + boxWidth - resignButtonWidth - 10;
@@ -125,16 +194,28 @@ public class GamePanelMoveLogRenderer {
         navEndRect.setBounds(navButtonX4, navButtonY, navButtonWidth, navButtonHeight);
 
         boolean canUndo = gm.canUndo();
+        boolean hoverFen = fenButtonRect.contains(mouse.x, mouse.y);
         boolean hoverFlip = flipButtonRect.contains(mouse.x, mouse.y);
         boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
         boolean hoverResignWhite = resignWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverResignBlack = resignBlackRect.contains(mouse.x, mouse.y);
 
+        g2.setColor(hoverFen ? new Color(76, 146, 220, 220) : new Color(52, 98, 155, 185));
+        g2.fillRoundRect(fenButtonX, buttonY, fenButtonWidth, buttonHeight, 4, 4);
+        g2.setColor(new Color(200, 200, 200));
+        g2.setStroke(new BasicStroke(1.5f));
+
         g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 220, 180));
         g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
         g2.setStroke(new BasicStroke(1.5f));
+
+        g2.setFont(new Font("Roboto", Font.BOLD, 11));
+        FontMetrics fenMetrics = g2.getFontMetrics();
+        int fenTextX = fenButtonX + (fenButtonWidth - fenMetrics.stringWidth("FEN")) / 2;
+        int fenTextY = buttonY + (buttonHeight + fenMetrics.getAscent() - fenMetrics.getDescent()) / 2 - 1;
+        g2.drawString("FEN", fenTextX, fenTextY);
 
         Color navHoverColor = new Color(120, 210, 120, 220);
         Color navBaseColor = new Color(0, 0, 0, 200);
@@ -179,8 +260,8 @@ public class GamePanelMoveLogRenderer {
         g2.drawLine(boxX + 10, boxY + 32, boxX + boxWidth - 10, boxY + 32);
 
         int col1X = boxX + 15;
-        int col2X = boxX + 75;
-        int col3X = boxX + 155;
+        int col2X = boxX + 70;
+        int col3X = boxX + 150;
         int rowStartY = boxY + 48;
         int rowHeight = 22;
 
@@ -210,12 +291,9 @@ public class GamePanelMoveLogRenderer {
         g2.drawLine(boxX + 10, rowStartY + 6, boxX + boxWidth - 10, rowStartY + 6);
 
         int startY = rowStartY + 22;
-        int totalMoves = gm.moves.size();
-        int totalPairs = (totalMoves + 1) / 2;
         int maxVisible = 10;
 
-        g2.setFont(new Font("Roboto", Font.PLAIN, 13));
-        int activeMoveIndex = (gm.getViewMoveIndex() == -1) ? (totalMoves - 1) : (gm.getViewMoveIndex() - 1);
+        g2.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 13));
         for (int i = 0; i < maxVisible; i++) {
             int pairIndex = gm.scrollStartLine + i;
             if (pairIndex >= totalPairs) {
@@ -230,29 +308,33 @@ public class GamePanelMoveLogRenderer {
             int whiteMoveIndex = pairIndex * 2;
             if (whiteMoveIndex < totalMoves) {
                 MoveRecord whiteMove = gm.moves.get(whiteMoveIndex);
+                String fullText = formatMoveLabel(whiteMove);
+                
                 boolean isLastMove = (whiteMoveIndex == activeMoveIndex);
                 if (isLastMove) {
                     g2.setColor(new Color(0, 120, 215, 60));
-                    g2.fillRoundRect(col2X - 5, currentY - 14, 65, 18, 4, 4);
+                    g2.fillRoundRect(col2X - 5, currentY - 14, 80, 18, 4, 4);
                     g2.setColor(new Color(255, 255, 255));
                 } else {
                     g2.setColor(new Color(210, 215, 225));
                 }
-                g2.drawString(whiteMove.san, col2X, currentY);
+                g2.drawString(fullText, col2X, currentY);
             }
 
             int blackMoveIndex = pairIndex * 2 + 1;
             if (blackMoveIndex < totalMoves) {
                 MoveRecord blackMove = gm.moves.get(blackMoveIndex);
+                String fullText = formatMoveLabel(blackMove);
+                
                 boolean isLastMove = (blackMoveIndex == activeMoveIndex);
                 if (isLastMove) {
                     g2.setColor(new Color(0, 120, 215, 60));
-                    g2.fillRoundRect(col3X - 5, currentY - 14, 65, 18, 4, 4);
+                    g2.fillRoundRect(col3X - 5, currentY - 14, 80, 18, 4, 4);
                     g2.setColor(new Color(255, 255, 255));
                 } else {
                     g2.setColor(new Color(210, 215, 225));
                 }
-                g2.drawString(blackMove.san, col3X, currentY);
+                g2.drawString(fullText, col3X, currentY);
             }
         }
 
@@ -274,6 +356,12 @@ public class GamePanelMoveLogRenderer {
             g2.setColor(new Color(255, 255, 255, 60));
             g2.fillRoundRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight, 2, 2);
         }
+    }
+
+    private String formatMoveLabel(MoveRecord move) {
+        String displaySan = sanToUnicode(move.san, move.color);
+        String timeStr = formatMoveTime(move.timeSpentSeconds);
+        return timeStr.isEmpty() ? displaySan : displaySan + " " + timeStr;
     }
 
     private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction) {

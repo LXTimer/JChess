@@ -16,6 +16,7 @@ public class Main {
 
 		GamePanel gamePanel = new GamePanel();
 		TitlePanel titlePanel = new TitlePanel(gamePanel);
+		gamePanel.setTitlePanel(titlePanel);
 
 		JLayeredPane layeredPane = new JLayeredPane();
 		layeredPane.setPreferredSize(gamePanel.getPreferredSize());

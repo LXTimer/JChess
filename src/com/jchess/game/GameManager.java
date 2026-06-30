@@ -54,6 +54,9 @@ public class GameManager {
     private ArrayList<Piece> cachedSortedBlack;
     private int cachedCapturedCount = -1;
 
+    // Per-move time tracking
+    public long moveStartTimeMillis = 0; // System.currentTimeMillis() when current player's turn started
+
     private final MoveValidator moveValidator;
     private final GameHistoryManager historyManager;
 
@@ -100,6 +103,34 @@ public class GameManager {
             pieces.add(whitePiece);
             pieces.add(blackPiece);
         }
+    }
+
+    public void resetGameState() {
+        clearAnimations();
+        historyManager.resetHistory();
+
+        setPieces();
+        copyPieces(pieces, simPieces);
+        promoPieces.clear();
+        legalMoveSquares.clear();
+
+        activeP = null;
+        checkingP = null;
+        currentColor = WHITE;
+        canMove = false;
+        validSquare = false;
+        promotion = false;
+        gameOver = false;
+        stalemate = false;
+        boardFlipped = false;
+        isBoardFlipped = false;
+        whiteResign = false;
+        blackResign = false;
+        timeOutWinner = null;
+        castlingP = null;
+        resetCapturedPieceCache();
+        scrollStartLine = 0;
+        moveStartTimeMillis = System.currentTimeMillis();
     }
 
     public void copyPieces(ArrayList<Piece> src, ArrayList<Piece> tgt) {
@@ -251,6 +282,11 @@ public class GameManager {
         legalMoveSquares.clear();
 
         MoveRecord record = new MoveRecord(activeP.type, fromCol, fromRow, toCol, toRow, currentColor, isCapture, isCastling, san);
+        // Record time spent on this move
+        if (moveStartTimeMillis > 0) {
+            record.timeSpentSeconds = (int) ((System.currentTimeMillis() - moveStartTimeMillis) / 1000);
+        }
+        moveStartTimeMillis = System.currentTimeMillis();
         moves.add(record);
 
         if (isCapture && activeP.hittingP != null) {
@@ -607,6 +643,137 @@ public class GameManager {
             }
         }
         return sum;
+    }
+
+    public String getFEN() {
+        StringBuilder fen = new StringBuilder();
+        // Build piece placement (ranks 8 to 1, row 0 = rank 1, row 7 = rank 8)
+        // FEN displays from White's perspective: rank 8 (black side) first, then down to rank 1 (white side)
+        for (int rank = 8; rank >= 1; rank--) {
+            int row = rank - 1; // Convert rank to internal row
+            int emptyCount = 0;
+            for (int col = 0; col < 8; col++) {
+                Piece piece = getPieceAt(col, row);
+                if (piece != null) {
+                    if (emptyCount > 0) {
+                        fen.append(emptyCount);
+                        emptyCount = 0;
+                    }
+                    char pieceChar = getPieceChar(piece);
+                    fen.append(pieceChar);
+                } else {
+                    emptyCount++;
+                }
+            }
+            if (emptyCount > 0) {
+                fen.append(emptyCount);
+            }
+            if (rank > 1) {
+                fen.append('/');
+            }
+        }
+
+        
+
+        // Active color
+        fen.append(' ').append(currentColor == WHITE ? 'w' : 'b');
+
+        // Castling rights
+        StringBuilder castling = new StringBuilder();
+        if (hasCastlingRights(WHITE, true))  castling.append('K');
+        if (hasCastlingRights(WHITE, false)) castling.append('Q');
+        if (hasCastlingRights(BLACK, true))  castling.append('k');
+        if (hasCastlingRights(BLACK, false)) castling.append('q');
+        if (castling.length() == 0) castling.append('-');
+        fen.append(' ').append(castling);
+
+        // En passant target
+        String enPassant = getEnPassantSquare();
+        fen.append(' ').append(enPassant);
+
+        // Halfmove clock
+        int halfmove = getHalfmoveClock();
+        fen.append(' ').append(halfmove);
+
+        // Fullmove number
+        int fullmove = moves.size() / 2 + 1;
+        fen.append(' ').append(fullmove);
+
+        return fen.toString();
+    }
+
+    private Piece getPieceAt(int col, int row) {
+        for (Piece p : pieces) {
+            if (p.col == col && p.row == row) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private char getPieceChar(Piece piece) {
+        char c;
+        switch (piece.type) {
+            case KING:   c = 'K'; break;
+            case QUEEN:  c = 'Q'; break;
+            case ROOK:   c = 'R'; break;
+            case BISHOP: c = 'B'; break;
+            case KNIGHT: c = 'N'; break;
+            case PAWN:   c = 'P'; break;
+            default:     return '?';
+        }
+        return piece.color == BLACK ? Character.toLowerCase(c) : c;
+    }
+
+    private boolean hasCastlingRights(int color, boolean kingSide) {
+        // Find king
+        Piece king = null;
+        for (Piece p : pieces) {
+            if (p.type == PieceType.KING && p.color == color) {
+                king = p;
+                break;
+            }
+        }
+        if (king == null || king.moved) return false;
+
+        // Find relevant rook
+        int rookCol = kingSide ? 7 : 0;
+        for (Piece p : pieces) {
+            if (p.type == PieceType.ROOK && p.color == color && p.col == rookCol) {
+                return !p.moved;
+            }
+        }
+        return false;
+    }
+
+    private String getEnPassantSquare() {
+        if (moves.isEmpty()) {
+            return "-";
+        }
+        MoveRecord lastMove = moves.get(moves.size() - 1);
+        if (lastMove.type != PieceType.PAWN) {
+            return "-";
+        }
+        int fromRow = lastMove.fromRow;
+        int toRow   = lastMove.toRow;
+        if (Math.abs(toRow - fromRow) != 2) {
+            return "-";
+        }
+        int epRow = (fromRow + toRow) / 2;
+        char epFile = (char) ('a' + lastMove.toCol);
+        return String.format("%c%d", epFile, 8 - epRow);
+    }
+
+    private int getHalfmoveClock() {
+        int count = 0;
+        for (int i = moves.size() - 1; i >= 0; i--) {
+            MoveRecord m = moves.get(i);
+            if (m.isCapture || PieceType.PAWN.equals(m.type)) {
+                break;
+            }
+            count++;
+        }
+        return count;
     }
 
     public void viewStart() {

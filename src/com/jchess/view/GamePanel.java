@@ -18,6 +18,10 @@ import java.util.ArrayList;
 
 import javax.imageio.ImageIO;
 import javax.swing.JPanel;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JTextField;
+import javax.swing.BoxLayout;
 import javax.swing.Timer;
 
 import com.jchess.game.GameManager;
@@ -56,6 +60,8 @@ public class GamePanel extends JPanel {
     private int whiteTimeRemaining; // in seconds
     private int blackTimeRemaining; // in seconds
     private long lastSecondTimestamp;
+    private boolean timerPaused = false;
+    private long pauseStartTime = 0;
     private static final int INITIAL_TIME_SECONDS = 6000;
     private BufferedImage flipBoardIcon;
     private BufferedImage ResignIcon;
@@ -74,11 +80,16 @@ public class GamePanel extends JPanel {
     private java.awt.Rectangle resignBlackRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoBlackRect = new java.awt.Rectangle();
+    private java.awt.Rectangle fenButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle navStartRect  = new java.awt.Rectangle(); // |<  go to start
     private java.awt.Rectangle navPrevRect   = new java.awt.Rectangle(); // <   go back one move
     private java.awt.Rectangle navNextRect   = new java.awt.Rectangle(); // >   go forward one move
     private java.awt.Rectangle navEndRect    = new java.awt.Rectangle(); // >|  go to end (live)
+    private java.awt.Rectangle restartButtonRect = new java.awt.Rectangle();
+    private java.awt.Rectangle titleButtonRect = new java.awt.Rectangle();
     private boolean isPlayerWhite = true;
+    private TitlePanel titlePanel;
+    private int lastInitialTimeSeconds = INITIAL_TIME_SECONDS;
 
     // Constructor
     public GamePanel() {
@@ -94,7 +105,7 @@ public class GamePanel extends JPanel {
         ResignIcon = loadResignIcon();
         undoIcon = loadUndoIcon();
         moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, flipBoardIcon, ResignIcon, undoIcon,
-            flipButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect,
+            flipButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect, fenButtonRect,
             navStartRect, navPrevRect, navNextRect, navEndRect);
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
@@ -102,6 +113,26 @@ public class GamePanel extends JPanel {
             int notches = e.getWheelRotation();
             gm.scrollMoveLog(notches);
             repaint();
+        });
+        
+        // Pause timer when window loses focus (Feature 37)
+        addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                if (!timerPaused && !isGameFinished() && gameTimer != null && gameTimer.isRunning()) {
+                    timerPaused = true;
+                    pauseStartTime = System.currentTimeMillis();
+                }
+            }
+            
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                if (timerPaused && pauseStartTime > 0) {
+                    long pauseDuration = System.currentTimeMillis() - pauseStartTime;
+                    lastSecondTimestamp += pauseDuration;
+                    timerPaused = false;
+                }
+            }
         });
         
         // Keyboard shortcuts
@@ -120,65 +151,130 @@ public class GamePanel extends JPanel {
         gm.playerColor = isPlayerWhite ? GameManager.WHITE : GameManager.BLACK;
     }
 
+    public void setTitlePanel(TitlePanel titlePanel) {
+        this.titlePanel = titlePanel;
+    }
+
     // Start method
     public void startGame(int initialTimeSeconds) {
-        if (gameTimer != null && gameTimer.isRunning()) {
-            return;
-        }
+        lastInitialTimeSeconds = initialTimeSeconds;
+        resetMatch(initialTimeSeconds);
+        startTimerLoop();
+        setVisible(true);
+        requestFocusInWindow();
+    }
 
-        // If player is Black, flip the board initially
-        if (!isPlayerWhite) {
-            gm.toggleFlipBoard();
-        }
+    public void restartGame() {
+        resetMatch(lastInitialTimeSeconds);
+        setVisible(true);
+        repaint();
+    }
 
-        // Initialize timer
+    public void returnToTitle() {
+        if (gameTimer != null) {
+            gameTimer.stop();
+        }
+        setVisible(false);
+        if (titlePanel != null) {
+            titlePanel.showTitlePanel();
+        }
+        repaint();
+    }
+
+    private void resetMatch(int initialTimeSeconds) {
+        gm.resetGameState();
+
+        mouse.pressed = false;
+        mouse.rightPressed = false;
+        mousePressedLastFrame = false;
+        rightPressedLastFrame = false;
+        leftPressedLastFrame = false;
+        rightClickStartCol = -1;
+        rightClickStartRow = -1;
+        rightClickDragging = false;
+        rightClickHighlights.clear();
+        rightClickArrows.clear();
+
         whiteTimeRemaining = initialTimeSeconds;
         blackTimeRemaining = initialTimeSeconds;
         lastSecondTimestamp = System.currentTimeMillis();
 
-        gameTimer = new Timer(TIMER_DELAY, e -> {
-            boolean mouseJustPressed = mouse.pressed && !mousePressedLastFrame;
-            boolean mouseJustReleased = !mouse.pressed && mousePressedLastFrame;
-            mousePressedLastFrame = mouse.pressed;
+        if (!isPlayerWhite) {
+            gm.toggleFlipBoard();
+        }
 
-            // Check for button clicks
-            if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
-                gm.toggleFlipBoard();
-            } else if (mouseJustPressed && undoWhiteRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
-                gm.undoLastMove();
-            } else if (mouseJustPressed && undoBlackRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
-                gm.undoLastMove();
-            } else if (mouseJustPressed && navStartRect.contains(mouse.x, mouse.y)) {
-                // |<  jump to the starting position
-                gm.viewStart();
-            } else if (mouseJustPressed && navPrevRect.contains(mouse.x, mouse.y)) {
-                // <   step back one move
-                gm.viewPrevious();
-            } else if (mouseJustPressed && navNextRect.contains(mouse.x, mouse.y)) {
-                // >   step forward one move
-                gm.viewNext();
-            } else if (mouseJustPressed && navEndRect.contains(mouse.x, mouse.y)) {
-                // >|  jump to the live / current position
-                gm.viewEnd();
-            } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                gm.resign(0);
-            } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
-                gm.resign(1);
-            } else {
-                // Main game loop update method
-                gm.update(mouseJustPressed, mouseJustReleased);
-            }
+        repaint();
+    }
 
-            // Update right-click annotations (highlights & arrows)
-            updateRightClickAnnotations();
+    private void startTimerLoop() {
+        if (gameTimer == null) {
+            gameTimer = new Timer(TIMER_DELAY, e -> {
+                boolean mouseJustPressed = mouse.pressed && !mousePressedLastFrame;
+                boolean mouseJustReleased = !mouse.pressed && mousePressedLastFrame;
+                mousePressedLastFrame = mouse.pressed;
 
-            // Update timer
-            updateTimer();
+                if (isGameFinished()) {
+                    if (mouseJustPressed && handleEndScreenClick()) {
+                        repaint();
+                        return;
+                    }
+                } else if (mouseJustPressed && fenButtonRect.contains(mouse.x, mouse.y)) {
+                    showFenDialog();
+                } else if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
+                    gm.toggleFlipBoard();
+                } else if (mouseJustPressed && undoWhiteRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
+                    gm.undoLastMove();
+                } else if (mouseJustPressed && undoBlackRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
+                    gm.undoLastMove();
+                } else if (mouseJustPressed && navStartRect.contains(mouse.x, mouse.y)) {
+                    gm.viewStart();
+                } else if (mouseJustPressed && navPrevRect.contains(mouse.x, mouse.y)) {
+                    gm.viewPrevious();
+                } else if (mouseJustPressed && navNextRect.contains(mouse.x, mouse.y)) {
+                    gm.viewNext();
+                } else if (mouseJustPressed && navEndRect.contains(mouse.x, mouse.y)) {
+                    gm.viewEnd();
+                } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                    gm.resign(0);
+                } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                    gm.resign(1);
+                } else {
+                    gm.update(mouseJustPressed, mouseJustReleased);
+                }
 
-            repaint();
-        });
-        gameTimer.setCoalesce(false);
-        gameTimer.start();
+                updateRightClickAnnotations();
+                updateTimer();
+                repaint();
+            });
+            gameTimer.setCoalesce(false);
+        }
+
+        if (!gameTimer.isRunning()) {
+            gameTimer.start();
+        }
+    }
+
+    private boolean handleEndScreenClick() {
+        if (fenButtonRect.contains(mouse.x, mouse.y)) {
+            showFenDialog();
+            return true;
+        }
+
+        if (restartButtonRect.contains(mouse.x, mouse.y)) {
+            restartGame();
+            return true;
+        }
+
+        if (titleButtonRect.contains(mouse.x, mouse.y)) {
+            returnToTitle();
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isGameFinished() {
+        return gm.gameOver || gm.stalemate;
     }
 
     // Handle keyboard shortcuts
@@ -420,6 +516,8 @@ public class GamePanel extends JPanel {
 
         // Display the game result when the game ends
         drawGameResult(g2);
+
+        updateActionCursor();
     }
 
     // Draw the dot for the highlight, or a capture ring if the square has an enemy piece
@@ -445,7 +543,7 @@ public class GamePanel extends JPanel {
                 g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
             } else {
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
-                g2.setColor(new Color(255, 255, 255, 180));
+                g2.setColor(new Color(255, 255, 255, 200));
                 g2.setStroke(new BasicStroke(5f));
                 g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
             }
@@ -468,7 +566,7 @@ public class GamePanel extends JPanel {
                 g2.fill(new Ellipse2D.Double(centerX - innerR, centerY - innerR, MOVE_DOT_INNER_SIZE, MOVE_DOT_INNER_SIZE));
             } else {
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.30f));
-                g2.setColor(new Color(255, 255, 255, 180));
+                g2.setColor(new Color(255, 255, 255, 200));
                 g2.setStroke(new BasicStroke(3f));
                 g2.draw(new Ellipse2D.Double(centerX - outerR, centerY - outerR, MOVE_DOT_OUTER_SIZE, MOVE_DOT_OUTER_SIZE));
 
@@ -480,9 +578,10 @@ public class GamePanel extends JPanel {
         g2.setComposite(oldComposite);
     }
 
-    // Check if the square contains an enemy piece in the current simulation state (i.e., this is a capture move)
+    // Check if the square contains an enemy piece on the actual board (i.e., this is a capture move)
+    // Uses gm.pieces rather than simPieces because simPieces may have the enemy removed during drag simulation
     private boolean isCaptureSquare(int col, int row) {
-        for (Piece p : GameManager.simPieces) {
+        for (Piece p : gm.pieces) {
             if (p.col == col && p.row == row && p.color != gm.currentColor) {
                 return true;
             }
@@ -580,57 +679,92 @@ public class GamePanel extends JPanel {
 
     // Display the game result when the game ends
     private void drawGameResult(Graphics2D g2) {
-        if (gm.gameOver || gm.stalemate) {
-            int centerY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT / 2;
-            
-            if (gm.whiteResign) {
-                g2.setFont(new Font("Roboto", Font.BOLD, 32));
-                g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, "Black Wins", SIDE_PANEL_CENTER_X, centerY - 15);
-                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
-                g2.setColor(new Color(200, 200, 200));
-                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, centerY + 15);
-                return;
-
-            } else if (gm.blackResign) {
-                g2.setFont(new Font("Roboto", Font.BOLD, 32));
-                g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, "White Wins", SIDE_PANEL_CENTER_X, centerY - 15);
-                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
-                g2.setColor(new Color(200, 200, 200));
-                drawCenteredString(g2, "by Resignation", SIDE_PANEL_CENTER_X, centerY + 15);
-                return;
-            } else if (gm.timeOutWinner != null) {
-                // Time out win
-                g2.setFont(new Font("Roboto", Font.BOLD, 32));
-                g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, (gm.timeOutWinner == com.jchess.game.GameManager.WHITE ? "White" : "Black") + " Wins", SIDE_PANEL_CENTER_X, centerY - 15);
-                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
-                g2.setColor(new Color(255, 200, 100));
-                drawCenteredString(g2, "by Time", SIDE_PANEL_CENTER_X, centerY + 15);
-                return;
-            } else {
-                String s = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? "White Wins" : "Black Wins";
-                g2.setFont(new Font("Roboto", Font.BOLD, 26));
-                g2.setColor(new Color(255, 88, 88));
-                drawCenteredString(g2, "Checkmate", SIDE_PANEL_CENTER_X, centerY - 20);
-                g2.setFont(new Font("Roboto", Font.BOLD, 30));
-                g2.setColor(new Color(126, 255, 140));
-                drawCenteredString(g2, s, SIDE_PANEL_CENTER_X, centerY + 15);
-            }
+        if (!isGameFinished()) {
+            return;
         }
 
-        if (gm.stalemate) {
-            int centerY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT / 2;
-            g2.setFont(new Font("Roboto", Font.BOLD, 32));
-            g2.setColor(Color.lightGray);
-                drawCenteredString(g2, "Stalemate", SIDE_PANEL_CENTER_X, centerY);
-                if (gm.getMoveValidator().isInsufficientMaterial()) {
-                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
-                g2.setColor(new Color(200, 200, 200));
-                drawCenteredString(g2, "by Insufficient Material", SIDE_PANEL_CENTER_X, centerY + 30);
-            }
+        Composite oldComposite = g2.getComposite();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.68f));
+        g2.setColor(new Color(28, 30, 34));
+        g2.fillRect(0, 0, getWidth(), getHeight());
+        g2.setComposite(oldComposite);
+
+        int panelWidth = 380;
+        int panelHeight = 230;
+        int panelX = (getWidth() - panelWidth) / 2;
+        int panelY = (getHeight() - panelHeight) / 2 - 5;
+
+        g2.setColor(new Color(12, 14, 18, 235));
+        g2.fillRoundRect(panelX, panelY, panelWidth, panelHeight, 18, 18);
+        g2.setColor(new Color(255, 255, 255, 40));
+        g2.setStroke(new BasicStroke(1.5f));
+        g2.drawRoundRect(panelX, panelY, panelWidth, panelHeight, 18, 18);
+
+        int centerX = panelX + panelWidth / 2;
+        int titleY = panelY + 70;
+        int detailY = panelY + 110;
+
+        String resultTitle;
+        String resultDetail;
+
+        if (gm.whiteResign) {
+            resultTitle = "Black Wins";
+            resultDetail = "by Resignation";
+        } else if (gm.blackResign) {
+            resultTitle = "White Wins";
+            resultDetail = "by Resignation";
+        } else if (gm.timeOutWinner != null) {
+            resultTitle = (gm.timeOutWinner == com.jchess.game.GameManager.WHITE ? "White" : "Black") + " Wins";
+            resultDetail = "by Time";
+        } else if (gm.stalemate) {
+            resultTitle = "Stalemate";
+            resultDetail = gm.getMoveValidator().isInsufficientMaterial() ? "by Insufficient Material" : "No legal moves available";
+        } else {
+            resultTitle = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? "Black Wins" : "White Wins";
+            resultDetail = "Checkmate";
         }
+
+        g2.setFont(new Font("Roboto", Font.BOLD, 32));
+        g2.setColor(new Color(126, 255, 140));
+        drawCenteredString(g2, resultTitle, centerX, titleY);
+
+        g2.setFont(new Font("Roboto", Font.PLAIN, 22));
+        g2.setColor(new Color(200, 200, 200));
+        drawCenteredString(g2, resultDetail, centerX, detailY);
+
+        int buttonWidth = 140;
+        int buttonHeight = 40;
+        int buttonY = panelY + panelHeight - 62;
+        int buttonGap = 16;
+        int restartX = centerX - buttonWidth - buttonGap / 2;
+        int titleX = centerX + buttonGap / 2;
+
+        drawEndButton(g2, restartButtonRect, restartX, buttonY, buttonWidth, buttonHeight,
+                "Play again", new Color(70, 150, 230), new Color(94, 175, 255));
+        drawEndButton(g2, titleButtonRect, titleX, buttonY, buttonWidth, buttonHeight,
+                "Main Menu", new Color(82, 88, 98), new Color(110, 118, 128));
+    }
+
+    private void drawEndButton(Graphics2D g2, java.awt.Rectangle rect, int x, int y, int width, int height,
+            String text, Color baseColor, Color hoverColor) {
+        boolean hovered = rect.contains(mouse.x, mouse.y);
+        boolean pressed = hovered && mouse.pressed;
+
+        Color fill = pressed ? hoverColor.darker() : hovered ? hoverColor : baseColor;
+        g2.setColor(fill);
+        g2.fillRoundRect(x, y, width, height, 12, 12);
+        g2.setColor(new Color(255, 255, 255, hovered ? 90 : 45));
+        g2.setStroke(new BasicStroke(1.2f));
+        g2.drawRoundRect(x, y, width, height, 12, 12);
+
+        rect.setBounds(x, y, width, height);
+
+        g2.setFont(new Font("Roboto", Font.BOLD, 18));
+        g2.setColor(Color.WHITE);
+        FontMetrics metrics = g2.getFontMetrics();
+        int textX = x + (width - metrics.stringWidth(text)) / 2;
+        int textY = y + (height + metrics.getAscent() - metrics.getDescent()) / 2 - 1;
+        g2.drawString(text, textX, textY + (pressed ? 1 : 0));
     }
 
     // Inner class representing a right-click arrow annotation
@@ -717,7 +851,7 @@ public class GamePanel extends JPanel {
         int margin = 4;
         int diameter = Board.SIZE - 2 * margin;
         g2.setStroke(new BasicStroke(4));
-        g2.setColor(new Color(102, 163, 108, 200));
+        g2.setColor(new Color(92, 151, 98, 200));
         for (Point p : rightClickHighlights) {
             int x = p.x * Board.SIZE + margin;
             int y = p.y * Board.SIZE + margin;
@@ -728,7 +862,7 @@ public class GamePanel extends JPanel {
     // Draw all right-click arrows
     private void drawRightClickArrows(Graphics2D g2) {
         g2.setStroke(new BasicStroke(10.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g2.setColor(new Color(102, 163, 108, 200));
+        g2.setColor(new Color(92, 151, 98, 200));
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         for (Arrow arrow : rightClickArrows) {
@@ -737,14 +871,18 @@ public class GamePanel extends JPanel {
             double endX = arrow.endCol * Board.SIZE + Board.SIZE / 2.0;
             double endY = arrow.endRow * Board.SIZE + Board.SIZE / 2.0;
 
-            // Draw the line
-            g2.draw(new java.awt.geom.Line2D.Double(startX, startY, endX, endY));
-
-            // Draw arrowhead
             double angle = Math.atan2(endY - startY, endX - startX);
             double arrowLength = 45;
             double arrowAngle = Math.toRadians(30);
 
+            // Shorten line endpoint slightly so arrowhead sits at the tip
+            double lineEndX = endX - arrowLength * 0.5 * Math.cos(angle);
+            double lineEndY = endY - arrowLength * 0.5 * Math.sin(angle);
+
+            // Draw the line
+            g2.draw(new java.awt.geom.Line2D.Double(startX, startY, lineEndX, lineEndY));
+
+            // Draw arrowhead at the actual endpoint
             double x1 = endX - arrowLength * Math.cos(angle - arrowAngle);
             double y1 = endY - arrowLength * Math.sin(angle - arrowAngle);
             double x2 = endX - arrowLength * Math.cos(angle + arrowAngle);
@@ -830,6 +968,16 @@ public class GamePanel extends JPanel {
         int topTextY = topTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
         g2.drawString(topTime, topTextX, topTextY);
 
+        // Show pause indicator if timer is paused (Feature 37)
+        if (timerPaused) {
+            g2.setFont(new Font("Roboto", Font.BOLD, 14));
+            g2.setColor(new Color(255, 200, 100));
+            String pausedText = "⏸ PAUSED";
+            int pausedX = timerX + (timerWidth - metrics.stringWidth(pausedText)) / 2;
+            int pausedY = (topTimerY + bottomTimerY + timerHeight) / 2 - 20;
+            g2.drawString(pausedText, pausedX, pausedY);
+        }
+        
         // Highlight active player's timer
         if (!gm.gameOver && !gm.stalemate) {
             int activeTimerY;
@@ -849,6 +997,62 @@ public class GamePanel extends JPanel {
         FontMetrics metrics = g2.getFontMetrics();
         int textX = centerX - metrics.stringWidth(text) / 2;
         g2.drawString(text, textX, baselineY);
+    }
+
+    private void updateActionCursor() {
+        boolean hovering = false;
+
+        if (isGameFinished()) {
+            hovering = fenButtonRect.contains(mouse.x, mouse.y)
+                || restartButtonRect.contains(mouse.x, mouse.y)
+                    || titleButtonRect.contains(mouse.x, mouse.y);
+        } else {
+            boolean canUndo = gm.canUndo();
+            boolean canResign = !gm.gameOver && !gm.stalemate;
+            boolean canGoStart = !gm.moves.isEmpty() && gm.getViewMoveIndex() != 0;
+            boolean canGoPrev = !gm.moves.isEmpty() && (gm.getViewMoveIndex() > 0 || gm.getViewMoveIndex() == -1);
+            boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
+            boolean canGoEnd = gm.getViewMoveIndex() != -1;
+
+            hovering = fenButtonRect.contains(mouse.x, mouse.y)
+                    || flipButtonRect.contains(mouse.x, mouse.y)
+                    || (canUndo && (undoWhiteRect.contains(mouse.x, mouse.y) || undoBlackRect.contains(mouse.x, mouse.y)))
+                    || (canResign && (resignWhiteRect.contains(mouse.x, mouse.y) || resignBlackRect.contains(mouse.x, mouse.y)))
+                    || (canGoStart && navStartRect.contains(mouse.x, mouse.y))
+                    || (canGoPrev && navPrevRect.contains(mouse.x, mouse.y))
+                    || (canGoNext && navNextRect.contains(mouse.x, mouse.y))
+                    || (canGoEnd && navEndRect.contains(mouse.x, mouse.y));
+        }
+
+        setCursor(new java.awt.Cursor(hovering ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
+    }
+
+    private void showFenDialog() {
+        String fen = gm.getFEN();
+
+        JTextField fenField = new JTextField(fen);
+        fenField.setEditable(false);
+        fenField.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        fenField.setCaretPosition(0);
+        fenField.selectAll();
+
+        JLabel hintLabel = new JLabel("Copy this FEN string:");
+        hintLabel.setForeground(Color.DARK_GRAY);
+
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setBackground(Color.WHITE);
+        content.add(hintLabel);
+        content.add(fenField);
+
+        JOptionPane.showMessageDialog(
+                this,
+                content,
+                "Current Board FEN",
+                JOptionPane.PLAIN_MESSAGE);
+
+        fenField.requestFocusInWindow();
+        fenField.selectAll();
     }
 
     // Draw the captured pieces for both players in the side panel
