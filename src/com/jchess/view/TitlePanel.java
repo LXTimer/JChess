@@ -12,6 +12,7 @@ import com.jchess.view.GamePanel;
 public class TitlePanel extends JPanel {
     private GamePanel gamePanel;
     private JButton startButton;
+    private JButton helpButton;
     private JComboBox<String> timeComboBox;
     private JComboBox<String> colorComboBox;
     public boolean isPlayerWhite = true; // Default to white, can be changed based on selection
@@ -114,6 +115,37 @@ public class TitlePanel extends JPanel {
         });
 
         add(startButton);
+
+        // Controls and tips button
+        helpButton = new JButton("?");
+        helpButton.setFont(new Font("Roboto", Font.PLAIN, 25));
+        helpButton.setBounds(800, 35, 48, 48);
+        helpButton.setBackground(new Color(56, 60, 68));
+        helpButton.setForeground(Color.WHITE);
+        helpButton.setFocusPainted(false);
+        helpButton.setBorderPainted(false);
+        helpButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        helpButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                showControlsDialog();
+            }
+        });
+
+        helpButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                helpButton.setBackground(new Color(74, 80, 90));
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                helpButton.setBackground(new Color(56, 60, 68));
+            }
+        });
+
+        add(helpButton);
     }
 
     @Override
@@ -133,6 +165,46 @@ public class TitlePanel extends JPanel {
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
         super.paint(g2);
         g2.dispose();
+    }
+
+    public void showTitlePanel() {
+        if (fadeTimer != null && fadeTimer.isRunning()) {
+            fadeTimer.stop();
+        }
+        alpha = 1.0f;
+        fadingOut = false;
+        startButton.setEnabled(true);
+        helpButton.setEnabled(true);
+        setVisible(true);
+        repaint();
+    }
+
+    private void showControlsDialog() {
+        String message = "<html><div style='width: 420px; font-family: Roboto;'>"
+                + "<h2 style='margin: 0 0 10px 0;'>Controls & Tips</h2>"
+                + "<b>Basic Play</b><br>"
+                + "- Click a piece to select it, then click a highlighted square to move.<br>"
+                + "- Use the move log to review previous moves.<br>"
+                + "- Right-click a square to toggle a circle marker.<br>"
+                + "- Right-click and drag to draw an arrow.<br><br>"
+                + "<b>Keyboard Shortcuts</b><br>"
+                + "- Left Arrow: Previous move<br>"
+                + "- Right Arrow: Next move<br>"
+                + "- Up Arrow: Go to start<br>"
+                + "- Down Arrow: Go to live position<br>"
+                + "- F: Flip board<br>"
+                + "- Ctrl + Z: Undo last move<br><br>"
+                + "<b>Match</b><br>"
+                + "- Choose a time control before starting.<br>"
+                + "- Choose White, Black, or Random color.<br>"
+                + "- When the game ends, use Restart or Return to Title.<br>"
+                + "</div></html>";
+
+        JOptionPane.showMessageDialog(
+                this,
+                message,
+                "Controls & Tips",
+                JOptionPane.INFORMATION_MESSAGE);
     }
 
     // Start the fade-out animation, then start the game and hide the panel

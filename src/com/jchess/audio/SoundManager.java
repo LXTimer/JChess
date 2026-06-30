@@ -34,7 +34,7 @@ public class SoundManager {
             
             clip.start();
         } catch (Exception e) {
-            System.err.println("Failed to play sound: " + soundFile);
+            System.err.println("Failed to play sound.");
         }
     }
 }
