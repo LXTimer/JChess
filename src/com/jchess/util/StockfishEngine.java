@@ -105,6 +105,13 @@ public class StockfishEngine {
                 System.err.println("Stockfish did not respond with uciok. Recent output: " + recentLines);
                 return false;
             }
+
+            sendCommand("ucinewgame");
+            sendCommand("isready");
+            if (!waitForToken("readyok", 3000)) {
+                System.err.println("Stockfish did not respond with readyok after ucinewgame. Recent output: " + recentLines);
+                return false;
+            }
  
             return true;
         } catch (IOException e) {
@@ -159,6 +166,8 @@ public class StockfishEngine {
                 System.err.println("Stockfish did not respond with readyok. Recent output: " + recentLines);
                 return null;
             }
+
+            stdoutLines.clear();
 
             sendCommand("position fen " + fen);
             sendCommand("go movetime " + movetimeMillis);

@@ -45,6 +45,10 @@ public class GameHistoryManager {
         preMoveSnapshot = copyPieceList(gm.pieces);
     }
 
+    public void clearPreMoveSnapshot() {
+        preMoveSnapshot = null;
+    }
+
     public void saveHistorySnapshot() {
         piecesHistory.add(preMoveSnapshot != null ? preMoveSnapshot : copyPieceList(gm.pieces));
         simPiecesHistory.add(copyPieceList(gm.pieces));

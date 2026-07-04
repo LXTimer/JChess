@@ -796,18 +796,21 @@ public class GameManager {
         Piece movingPiece = getPieceAt(fromCol, fromRow);
         if (movingPiece == null || movingPiece.color != currentColor) {
             System.err.println("Engine move rejected: no current-color piece at from-square.");
+            historyManager.clearPreMoveSnapshot();
             return;
         }
 
         Piece target = getPieceAt(toCol, toRow);
         if (target != null && target.color == movingPiece.color) {
             System.err.println("Engine move rejected: target has friendly piece.");
+            historyManager.clearPreMoveSnapshot();
             return;
         }
 
         if (!moveValidator.canLegallyMove(movingPiece, toCol, toRow)) {
             System.err.println("Engine move rejected as illegal: "
                     + fromCol + "," + fromRow + " -> " + toCol + "," + toRow);
+            historyManager.clearPreMoveSnapshot();
             return;
         }
 
@@ -921,9 +924,8 @@ public class GameManager {
 
 
 
-    // Toggle to stabilize engine integration if your FEN metadata (en-passant/counters)
-    // might be temporarily incorrect.
-    private static final boolean STOCKFISH_STABLE_FEN = true;
+    // Stockfish expects standard FEN metadata so it can evaluate en passant and move counters correctly.
+    private static final boolean STOCKFISH_STABLE_FEN = false;
 
     public String getFEN() {
         StringBuilder fen = new StringBuilder();
