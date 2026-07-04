@@ -38,16 +38,16 @@ public class GamePanel extends JPanel {
     private static final int FPS = 60;
     private static final int TIMER_DELAY = 1000 / FPS;
     private static final int BOARD_PIXEL_SIZE = Board.SIZE * 8;
-    private static final int SIDE_PANEL_X = BOARD_PIXEL_SIZE + 12;
-    private static final int SIDE_PANEL_Y = 45;
-    private static final int SIDE_PANEL_WIDTH = WIDTH - SIDE_PANEL_X - 16;
-    private static final int SIDE_PANEL_HEIGHT = 510;
+    private static final int SIDE_PANEL_X = BOARD_PIXEL_SIZE + 10;
+    private static final int SIDE_PANEL_Y = 35;
+    private static final int SIDE_PANEL_WIDTH = WIDTH - SIDE_PANEL_X - 12;
+    private static final int SIDE_PANEL_HEIGHT = 525;
     private static final int SIDE_PANEL_CENTER_X = SIDE_PANEL_X + SIDE_PANEL_WIDTH / 2;
-    private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 50;
-    private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 30;
-    private static final int WHITE_TURN_Y = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 50;
-    private static final int WHITE_CHECK_Y = WHITE_TURN_Y - 30;
-    private static final int PROMOTION_LABEL_Y = SIDE_PANEL_Y + 110;
+    private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 40;
+    private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 22;
+    private static final int WHITE_TURN_Y = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - 40;
+    private static final int WHITE_CHECK_Y = WHITE_TURN_Y - 22;
+    private static final int PROMOTION_LABEL_Y = SIDE_PANEL_Y + 100;
     private static final int MOVE_DOT_OUTER_SIZE = 30;
     private static final int MOVE_DOT_INNER_SIZE = 15;
     private static final float BACKGROUND_ALPHA = 0.70f;
@@ -81,6 +81,7 @@ public class GamePanel extends JPanel {
     private java.awt.Rectangle undoWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoBlackRect = new java.awt.Rectangle();
     private java.awt.Rectangle fenButtonRect = new java.awt.Rectangle();
+    private java.awt.Rectangle pgnButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle navStartRect  = new java.awt.Rectangle(); // |<  go to start
     private java.awt.Rectangle navPrevRect   = new java.awt.Rectangle(); // <   go back one move
     private java.awt.Rectangle navNextRect   = new java.awt.Rectangle(); // >   go forward one move
@@ -90,6 +91,15 @@ public class GamePanel extends JPanel {
     private boolean isPlayerWhite = true;
     private TitlePanel titlePanel;
     private int lastInitialTimeSeconds = INITIAL_TIME_SECONDS;
+
+    // Stockfish engine support
+    private boolean isVsComputer = false;
+    private boolean computerThinking = false;
+    private com.jchess.util.StockfishEngine stockfishEngine;
+
+    public void setVsComputer(boolean vsComputer) {
+        this.isVsComputer = vsComputer;
+    }
 
     // Constructor
     public GamePanel() {
@@ -106,7 +116,7 @@ public class GamePanel extends JPanel {
         undoIcon = loadUndoIcon();
         moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, flipBoardIcon, ResignIcon, undoIcon,
             flipButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect, fenButtonRect,
-            navStartRect, navPrevRect, navNextRect, navEndRect);
+            pgnButtonRect, navStartRect, navPrevRect, navNextRect, navEndRect);
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
         addMouseWheelListener(e -> {
@@ -174,6 +184,10 @@ public class GamePanel extends JPanel {
         if (gameTimer != null) {
             gameTimer.stop();
         }
+        if (stockfishEngine != null) {
+            stockfishEngine.stop();
+            stockfishEngine = null;
+        }
         setVisible(false);
         if (titlePanel != null) {
             titlePanel.showTitlePanel();
@@ -183,6 +197,12 @@ public class GamePanel extends JPanel {
 
     private void resetMatch(int initialTimeSeconds) {
         gm.resetGameState();
+
+        if (stockfishEngine != null) {
+            stockfishEngine.stop();
+            stockfishEngine = null;
+        }
+        computerThinking = false;
 
         mouse.pressed = false;
         mouse.rightPressed = false;
@@ -218,6 +238,8 @@ public class GamePanel extends JPanel {
                         repaint();
                         return;
                     }
+                } else if (mouseJustPressed && pgnButtonRect.contains(mouse.x, mouse.y)) {
+                    showPgnDialog();
                 } else if (mouseJustPressed && fenButtonRect.contains(mouse.x, mouse.y)) {
                     showFenDialog();
                 } else if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
@@ -238,8 +260,15 @@ public class GamePanel extends JPanel {
                     gm.resign(0);
                 } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
                     gm.resign(1);
-                } else {
-                    gm.update(mouseJustPressed, mouseJustReleased);
+                } else if (gm.getViewMoveIndex() == -1) {
+                    if (isVsComputer && gm.currentColor != gm.getPlayerColor() && !gm.gameOver && !gm.stalemate) {
+                        gm.update(false, false);
+                        if (!computerThinking && !gm.hasAnimations()) {
+                            triggerComputerMove();
+                        }
+                    } else {
+                        gm.update(mouseJustPressed, mouseJustReleased);
+                    }
                 }
 
                 updateRightClickAnnotations();
@@ -255,6 +284,11 @@ public class GamePanel extends JPanel {
     }
 
     private boolean handleEndScreenClick() {
+        if (pgnButtonRect.contains(mouse.x, mouse.y)) {
+            showPgnDialog();
+            return true;
+        }
+
         if (fenButtonRect.contains(mouse.x, mouse.y)) {
             showFenDialog();
             return true;
@@ -467,6 +501,17 @@ public class GamePanel extends JPanel {
             g2.fillRect(toCol * Board.SIZE, toRow * Board.SIZE, Board.SIZE, Board.SIZE);
         }
 
+        // Highlight the selected piece's square
+        if (gm.activeP != null && !gm.gameOver && !gm.stalemate) {
+            g2.setColor(new Color(255, 255, 100, 120)); // Semi-transparent yellow highlight
+            g2.fillRect(gm.activeP.col * Board.SIZE, gm.activeP.row * Board.SIZE, Board.SIZE, Board.SIZE);
+            
+            // Draw a border around the selected square
+            g2.setColor(new Color(255, 255, 150, 200));
+            g2.setStroke(new BasicStroke(2f));
+            g2.drawRect(gm.activeP.col * Board.SIZE, gm.activeP.row * Board.SIZE, Board.SIZE, Board.SIZE);
+        }
+
         // Draw the side information panel
         g2.setColor(new Color(12, 14, 18, 176));
         g2.fillRoundRect(SIDE_PANEL_X, SIDE_PANEL_Y, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT, 8, 8);
@@ -518,6 +563,13 @@ public class GamePanel extends JPanel {
         drawGameResult(g2);
 
         updateActionCursor();
+        
+        // Show large centered pause indicator if timer is paused (Feature 37)
+        if (timerPaused) {
+            g2.setFont(new Font("Roboto", Font.BOLD, 48));
+            g2.setColor(new Color(255, 200, 100));
+            drawCenteredString(g2, "PAUSED", WIDTH / 2, HEIGHT / 2);
+        }
     }
 
     // Draw the dot for the highlight, or a capture ring if the square has an enemy piece
@@ -589,7 +641,7 @@ public class GamePanel extends JPanel {
         return false;
     }
 
-    // Highlight the king when it is in check
+    // Highlight the king when it is in check with a pulsing glow effect
     private void drawCheckedKingGlow(Graphics2D g2) {
         if (gm.checkingP == null)
             return;
@@ -607,13 +659,26 @@ public class GamePanel extends JPanel {
         double centerY = king.row * Board.SIZE + Board.SIZE / 2.0;
         Composite oldComposite = g2.getComposite();
 
-        for (int layer = 6; layer >= 1; layer--) {
-            int diameter = Board.SIZE + layer * 10;
+        // Pulsing animation: oscillate between 0.6 and 1.0 based on time
+        double pulse = 0.6 + 0.4 * Math.sin(System.currentTimeMillis() / 300.0);
+
+        // Outer glow layers with pulsing intensity
+        for (int layer = 8; layer >= 1; layer--) {
+            int diameter = Board.SIZE + layer * 12;
             double radius = diameter / 2.0;
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (0.2f / 6) * layer));
-            g2.setColor(new Color(255, 80, 80));
+            float alpha = (float) ((0.25f / 8) * layer * pulse);
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.min(alpha, 0.35f)));
+            g2.setColor(new Color(255, 60, 60));
             g2.fill(new Ellipse2D.Double(centerX - radius, centerY - radius, diameter, diameter));
         }
+
+        // Inner bright ring for emphasis
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f * (float)pulse));
+        g2.setColor(new Color(255, 100, 100));
+        g2.setStroke(new BasicStroke(3f));
+        int ringDiameter = Board.SIZE + 4;
+        double ringRadius = ringDiameter / 2.0;
+        g2.draw(new Ellipse2D.Double(centerX - ringRadius, centerY - ringRadius, ringDiameter, ringDiameter));
 
         g2.setComposite(oldComposite);
     }
@@ -786,6 +851,8 @@ public class GamePanel extends JPanel {
 
         int mouseCol = mouse.x / Board.SIZE;
         int mouseRow = mouse.y / Board.SIZE;
+        int logicalCol = gm.isBoardFlipped() ? 7 - mouseCol : mouseCol;
+        int logicalRow = gm.isBoardFlipped() ? 7 - mouseRow : mouseRow;
 
         // Validate that the mouse is on the board
         boolean onBoard = mouseCol >= 0 && mouseCol < 8 && mouseRow >= 0 && mouseRow < 8;
@@ -802,27 +869,27 @@ public class GamePanel extends JPanel {
         }
 
         if (rightJustPressed && onBoard) {
-            rightClickStartCol = mouseCol;
-            rightClickStartRow = mouseRow;
+            rightClickStartCol = logicalCol;
+            rightClickStartRow = logicalRow;
             rightClickDragging = true;
         }
 
         if (rightJustReleased) {
             if (rightClickDragging && rightClickStartCol >= 0 && rightClickStartRow >= 0) {
-                if (onBoard && (mouseCol != rightClickStartCol || mouseRow != rightClickStartRow)) {
+                if (onBoard && (logicalCol != rightClickStartCol || logicalRow != rightClickStartRow)) {
                     // Dragged to a different square — toggle arrow from start to end
                     boolean found = false;
                     for (int i = 0; i < rightClickArrows.size(); i++) {
                         Arrow a = rightClickArrows.get(i);
                         if (a.startCol == rightClickStartCol && a.startRow == rightClickStartRow
-                            && a.endCol == mouseCol && a.endRow == mouseRow) {
+                            && a.endCol == logicalCol && a.endRow == logicalRow) {
                             rightClickArrows.remove(i);
                             found = true;
                             break;
                         }
                     }
                     if (!found) {
-                        rightClickArrows.add(new Arrow(rightClickStartCol, rightClickStartRow, mouseCol, mouseRow));
+                        rightClickArrows.add(new Arrow(rightClickStartCol, rightClickStartRow, logicalCol, logicalRow));
                     }
                 } else {
                     // Right-click on same square (no drag) — toggle highlight circle
@@ -853,8 +920,10 @@ public class GamePanel extends JPanel {
         g2.setStroke(new BasicStroke(4));
         g2.setColor(new Color(92, 151, 98, 200));
         for (Point p : rightClickHighlights) {
-            int x = p.x * Board.SIZE + margin;
-            int y = p.y * Board.SIZE + margin;
+            int drawCol = gm.isBoardFlipped() ? 7 - p.x : p.x;
+            int drawRow = gm.isBoardFlipped() ? 7 - p.y : p.y;
+            int x = drawCol * Board.SIZE + margin;
+            int y = drawRow * Board.SIZE + margin;
             g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
         }
     }
@@ -866,10 +935,14 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         for (Arrow arrow : rightClickArrows) {
-            double startX = arrow.startCol * Board.SIZE + Board.SIZE / 2.0;
-            double startY = arrow.startRow * Board.SIZE + Board.SIZE / 2.0;
-            double endX = arrow.endCol * Board.SIZE + Board.SIZE / 2.0;
-            double endY = arrow.endRow * Board.SIZE + Board.SIZE / 2.0;
+            int startCol = gm.isBoardFlipped() ? 7 - arrow.startCol : arrow.startCol;
+            int startRow = gm.isBoardFlipped() ? 7 - arrow.startRow : arrow.startRow;
+            int endCol = gm.isBoardFlipped() ? 7 - arrow.endCol : arrow.endCol;
+            int endRow = gm.isBoardFlipped() ? 7 - arrow.endRow : arrow.endRow;
+            double startX = startCol * Board.SIZE + Board.SIZE / 2.0;
+            double startY = startRow * Board.SIZE + Board.SIZE / 2.0;
+            double endX = endCol * Board.SIZE + Board.SIZE / 2.0;
+            double endY = endRow * Board.SIZE + Board.SIZE / 2.0;
 
             double angle = Math.atan2(endY - startY, endX - startX);
             double arrowLength = 45;
@@ -901,7 +974,7 @@ public class GamePanel extends JPanel {
     }
 
     private void updateTimer() {
-        if (gm.gameOver || gm.stalemate) {
+        if (gm.gameOver || gm.stalemate || timerPaused) {
             return;
         }
 
@@ -938,10 +1011,15 @@ public class GamePanel extends JPanel {
         int timerBlackY = SIDE_PANEL_Y + 15;
         int timerWhiteY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - timerHeight - 15;
 
-        // Determine which timer goes where based on board flip
+        // Board flip only affects where pieces are *drawn*.
+        // Clock values must be shown for the correct color at the correct location:
+        // - Without flip: BLACK pieces at the top area, WHITE at the bottom.
+        // - With flip: WHITE pieces at the top area, BLACK at the bottom.
         boolean isFlipped = gm.isBoardFlipped();
-        int topTimerY = isFlipped ? timerWhiteY : timerBlackY;     // top timer
-        int bottomTimerY = isFlipped ? timerBlackY : timerWhiteY;  // bottom timer
+
+        int topTimerY = isFlipped ? timerWhiteY : timerBlackY;
+        int bottomTimerY = isFlipped ? timerBlackY : timerWhiteY;
+
         int topColor = isFlipped ? GameManager.WHITE : GameManager.BLACK;
         int bottomColor = isFlipped ? GameManager.BLACK : GameManager.WHITE;
 
@@ -956,36 +1034,19 @@ public class GamePanel extends JPanel {
 
         FontMetrics metrics = g2.getFontMetrics();
 
-        // Bottom timer (player at bottom side)
-        String bottomTime = formatTime(bottomColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
-        int bottomTextX = timerX + (timerWidth - metrics.stringWidth(bottomTime)) / 2;
-        int bottomTextY = bottomTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
-        g2.drawString(bottomTime, bottomTextX, bottomTextY);
-
-        // Top timer (player at top side)
         String topTime = formatTime(topColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
         int topTextX = timerX + (timerWidth - metrics.stringWidth(topTime)) / 2;
         int topTextY = topTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
         g2.drawString(topTime, topTextX, topTextY);
 
-        // Show pause indicator if timer is paused (Feature 37)
-        if (timerPaused) {
-            g2.setFont(new Font("Roboto", Font.BOLD, 14));
-            g2.setColor(new Color(255, 200, 100));
-            String pausedText = "⏸ PAUSED";
-            int pausedX = timerX + (timerWidth - metrics.stringWidth(pausedText)) / 2;
-            int pausedY = (topTimerY + bottomTimerY + timerHeight) / 2 - 20;
-            g2.drawString(pausedText, pausedX, pausedY);
-        }
-        
-        // Highlight active player's timer
+        String bottomTime = formatTime(bottomColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
+        int bottomTextX = timerX + (timerWidth - metrics.stringWidth(bottomTime)) / 2;
+        int bottomTextY = bottomTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
+        g2.drawString(bottomTime, bottomTextX, bottomTextY);
+
+        // Highlight active player's timer strictly by gm.currentColor
         if (!gm.gameOver && !gm.stalemate) {
-            int activeTimerY;
-            if (gm.currentColor == bottomColor) {
-                activeTimerY = bottomTimerY;
-            } else {
-                activeTimerY = topTimerY;
-            }
+            int activeTimerY = (gm.currentColor == topColor) ? topTimerY : bottomTimerY;
             g2.setColor(new Color(255, 255, 255, 60));
             g2.setStroke(new java.awt.BasicStroke(2));
             g2.drawRoundRect(timerX - 2, activeTimerY - 2, timerWidth + 4, timerHeight + 4, 6, 6);
@@ -1014,7 +1075,8 @@ public class GamePanel extends JPanel {
             boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
             boolean canGoEnd = gm.getViewMoveIndex() != -1;
 
-            hovering = fenButtonRect.contains(mouse.x, mouse.y)
+            hovering = pgnButtonRect.contains(mouse.x, mouse.y)
+                    || fenButtonRect.contains(mouse.x, mouse.y)
                     || flipButtonRect.contains(mouse.x, mouse.y)
                     || (canUndo && (undoWhiteRect.contains(mouse.x, mouse.y) || undoBlackRect.contains(mouse.x, mouse.y)))
                     || (canResign && (resignWhiteRect.contains(mouse.x, mouse.y) || resignBlackRect.contains(mouse.x, mouse.y)))
@@ -1025,6 +1087,34 @@ public class GamePanel extends JPanel {
         }
 
         setCursor(new java.awt.Cursor(hovering ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
+    }
+
+    private void showPgnDialog() {
+        String pgn = gm.getPGN();
+
+        JTextField pgnField = new JTextField(pgn);
+        pgnField.setEditable(false);
+        pgnField.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        pgnField.setCaretPosition(0);
+        pgnField.selectAll();
+
+        JLabel hintLabel = new JLabel("Copy this PGN string:");
+        hintLabel.setForeground(Color.DARK_GRAY);
+
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setBackground(Color.WHITE);
+        content.add(hintLabel);
+        content.add(pgnField);
+
+        JOptionPane.showMessageDialog(
+                this,
+                content,
+                "Game PGN",
+                JOptionPane.PLAIN_MESSAGE);
+
+        pgnField.requestFocusInWindow();
+        pgnField.selectAll();
     }
 
     private void showFenDialog() {
@@ -1058,12 +1148,22 @@ public class GamePanel extends JPanel {
     // Draw the captured pieces for both players in the side panel
     private void drawCapturedPieces(Graphics2D g2) {
         ArrayList<Piece> capturedWhite = gm.getSortedCapturedPieces(com.jchess.game.GameManager.WHITE);
-        int topY = SIDE_PANEL_Y + 60;
-        int topEndX = drawCapturedList(g2, capturedWhite, SIDE_PANEL_X + 16, topY);
-
         ArrayList<Piece> capturedBlack = gm.getSortedCapturedPieces(com.jchess.game.GameManager.BLACK);
+
+        // When board is flipped (player is black), swap positions so captured pieces appear next to the correct side's area
+        boolean isFlipped = gm.isBoardFlipped();
+        int topY = SIDE_PANEL_Y + 80;
         int bottomY = 455;
-        int bottomEndX = drawCapturedList(g2, capturedBlack, SIDE_PANEL_X + 16, bottomY);
+
+        int topEndX, bottomEndX;
+        if (isFlipped) {
+            // White pieces are at the top when flipped, so black's captured pieces go on top
+            topEndX = drawCapturedList(g2, capturedBlack, SIDE_PANEL_X + 16, topY);
+            bottomEndX = drawCapturedList(g2, capturedWhite, SIDE_PANEL_X + 16, bottomY);
+        } else {
+            topEndX = drawCapturedList(g2, capturedWhite, SIDE_PANEL_X + 16, topY);
+            bottomEndX = drawCapturedList(g2, capturedBlack, SIDE_PANEL_X + 16, bottomY);
+        }
 
         int valWhite = gm.getCapturedValueByWhite();
         int valBlack = gm.getCapturedValueByBlack();
@@ -1071,12 +1171,13 @@ public class GamePanel extends JPanel {
         g2.setFont(new Font("Roboto", Font.BOLD, 12));
 
         // Display the material advantage as a positive number next to the player who is ahead
+        // When flipped, the captured piece positions are swapped, so the value text follows
         if (valWhite > valBlack) {
             g2.setColor(new Color(210, 215, 225));
-            g2.drawString("+" + (valWhite - valBlack), bottomEndX + 8, bottomY + 15);
+            g2.drawString("+" + (valWhite - valBlack), isFlipped ? topEndX + 8 : bottomEndX + 8, isFlipped ? topY + 15 : bottomY + 15);
         } else if (valBlack > valWhite) {
             g2.setColor(new Color(210, 215, 225));
-            g2.drawString("+" + (valBlack - valWhite), topEndX + 8, topY + 15);
+            g2.drawString("+" + (valBlack - valWhite), isFlipped ? bottomEndX + 8 : topEndX + 8, isFlipped ? bottomY + 15 : topY + 15);
         }
     }
 
@@ -1099,5 +1200,117 @@ public class GamePanel extends JPanel {
             }
         }
         return prevType == null ? startX : currentX + iconSize;
+    }
+
+    private void triggerComputerMove() {
+        // Vs-computer guard: ensure only one engine request runs at a time.
+        if (computerThinking) {
+            return;
+        }
+        if (gm.gameOver || gm.stalemate) {
+            return;
+        }
+
+        System.out.println("[Stockfish] triggerComputerMove called, currentColor=" + gm.currentColor + " playerColor=" + gm.getPlayerColor());
+        computerThinking = true;
+        new Thread(() -> {
+            try {
+                if (stockfishEngine == null) {
+                    String path = com.jchess.util.StockfishEngine.getSavedPath();
+                    System.out.println("[Stockfish] Creating engine with path: " + path);
+                    stockfishEngine = new com.jchess.util.StockfishEngine(path);
+                    if (!stockfishEngine.start()) {
+                        System.err.println("[Stockfish] Engine start() returned false");
+                        javax.swing.SwingUtilities.invokeLater(() -> {
+                            configureStockfishPath();
+                            computerThinking = false;
+                        });
+                        return;
+                    }
+                    System.out.println("[Stockfish] Engine started successfully");
+                }
+
+                String fen = gm.getFEN();
+                System.out.println("[Stockfish] Querying bestMove for fen=" + fen);
+                String bestMove = stockfishEngine.getBestMove(fen, 1000);
+                System.out.println("[Stockfish] bestMove=" + bestMove);
+
+                if (bestMove != null && !bestMove.equals("(none)")) {
+                    final String bm = bestMove;
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        applyComputerMove(bm);
+                        computerThinking = false;
+                    });
+                } else {
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        computerThinking = false;
+                    });
+                }
+            } catch (Exception ex) {
+                System.err.println("[Stockfish] Exception in computer move thread:");
+                ex.printStackTrace();
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    computerThinking = false;
+                });
+            }
+        }).start();
+    }
+
+    private void configureStockfishPath() {
+        javax.swing.JFileChooser fileChooser = new javax.swing.JFileChooser();
+        fileChooser.setDialogTitle("Select Stockfish Executable Binary");
+        int userSelection = fileChooser.showOpenDialog(this);
+        if (userSelection == javax.swing.JFileChooser.APPROVE_OPTION) {
+            java.io.File fileToOpen = fileChooser.getSelectedFile();
+            String path = fileToOpen.getAbsolutePath();
+            com.jchess.util.StockfishEngine.savePath(path);
+            
+            stockfishEngine = new com.jchess.util.StockfishEngine(path);
+            if (!stockfishEngine.start()) {
+                JOptionPane.showMessageDialog(this, "Failed to start Stockfish at selected path: " + path, "Error", JOptionPane.ERROR_MESSAGE);
+                stockfishEngine = null;
+            }
+        }
+    }
+
+    private void applyComputerMove(String bestMove) {
+        if (bestMove.length() < 4) return;
+        
+        int fromAbsCol = bestMove.charAt(0) - 'a';
+        int fromAbsRow = 8 - (bestMove.charAt(1) - '0');
+        int toAbsCol = bestMove.charAt(2) - 'a';
+        int toAbsRow = 8 - (bestMove.charAt(3) - '0');
+        
+        PieceType promoType = null;
+        if (bestMove.length() == 5) {
+            char p = bestMove.charAt(4);
+            if (p == 'q') promoType = PieceType.QUEEN;
+            else if (p == 'r') promoType = PieceType.ROOK;
+            else if (p == 'b') promoType = PieceType.BISHOP;
+            else if (p == 'n') promoType = PieceType.KNIGHT;
+        }
+        
+        int fromCol = gm.boardFlipped ? 7 - fromAbsCol : fromAbsCol;
+        int fromRow = gm.boardFlipped ? 7 - fromAbsRow : fromAbsRow;
+        int toCol = gm.boardFlipped ? 7 - toAbsCol : toAbsCol;
+        int toRow = gm.boardFlipped ? 7 - toAbsRow : toAbsRow;
+
+        // Safety: if we can't find a piece at from-square, skip applying.
+        // (Often indicates a FEN/coordinate mismatch.)
+        com.jchess.model.Piece p = null;
+        for (com.jchess.model.Piece piece : gm.pieces) {
+            if (piece.col == fromCol && piece.row == fromRow) {
+                p = piece;
+                break;
+            }
+        }
+        if (p == null) {
+            System.err.println("Stockfish move rejected: no piece at from-square. bestMove=" + bestMove + " fen=" + gm.getFEN());
+            return;
+        }
+
+        gm.makeValidatedEngineMove(fromCol, fromRow, toCol, toRow, promoType);
+
+        repaint();
     }
 }

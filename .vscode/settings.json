@@ -6,5 +6,9 @@
             "matchCommandLine": true
         }
     },
-    "java.debug.settings.onBuildFailureProceed": true
+    "java.debug.settings.onBuildFailureProceed": true,
+    "java.compile.nullAnalysis": "automatic",
+    "java.configuration.runtimes": [],
+    "java.project.outputPath": "bin"
+
 }

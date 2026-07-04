@@ -1,6 +1,5 @@
 package com.jchess.model.piece;
 
-import com.jchess.game.GameManager;
 import com.jchess.model.Piece;
 
 public class Pawn extends Piece {
@@ -19,7 +18,7 @@ public class Pawn extends Piece {
         }
 
         int direction = color == 0 ? -1 : 1;
-        if (GameManager.isBoardFlipped) {
+        if (boardFlipped) {
             direction = -direction;
         }
         hittingP = getHittingP(targetCol, targetRow);

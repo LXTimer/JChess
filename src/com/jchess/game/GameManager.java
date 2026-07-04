@@ -15,7 +15,6 @@ public class GameManager {
 
     public static final int WHITE = 0;
     public static final int BLACK = 1;
-    public static boolean isBoardFlipped = false;
     public int playerColor = WHITE;
 
     // Declare all the variables
@@ -123,7 +122,6 @@ public class GameManager {
         gameOver = false;
         stalemate = false;
         boardFlipped = false;
-        isBoardFlipped = false;
         whiteResign = false;
         blackResign = false;
         timeOutWinner = null;
@@ -461,8 +459,7 @@ public class GameManager {
 
     public void toggleFlipBoard() {
         boardFlipped = !boardFlipped;
-        isBoardFlipped = boardFlipped;
-        
+
         for (Piece p : simPieces) {
             p.col = 7 - p.col;
             p.row = 7 - p.row;
@@ -470,8 +467,13 @@ public class GameManager {
             p.preRow = 7 - p.preRow;
             p.x = p.getX(p.col);
             p.y = p.getY(p.row);
+            p.boardFlipped = boardFlipped;
         }
-        
+
+        for (Piece p : pieces) {
+            p.boardFlipped = boardFlipped;
+        }
+
         for (Point square : legalMoveSquares) {
             square.x = 7 - square.x;
             square.y = 7 - square.y;
@@ -645,15 +647,293 @@ public class GameManager {
         return sum;
     }
 
+    /**
+     * Programmatically applies a move from the chess engine to the board.
+     * Parameters fromCol/fromRow/toCol/toRow are in display coordinates
+     * (i.e. already flipped if boardFlipped is true).
+     */
+    public void makeEngineMove(int fromCol, int fromRow, int toCol, int toRow, PieceType promoType) {
+        // 1. Ensure we are at the live position
+        historyManager.viewEnd();
+
+        // 2. Capture pre-move snapshot for undo history (before any mutation)
+        historyManager.capturePreMoveSnapshot();
+
+        // 3. Find the moving piece from the live pieces list
+        activeP = getPieceAt(fromCol, fromRow);
+        if (activeP == null) {
+            return;
+        }
+
+        // 4. Move the piece in simPieces so canMove validation works
+        copyPieces(pieces, simPieces);
+
+        // Store old preCol/Row since activeP is from pieces
+        activeP.col = toCol;
+        activeP.row = toRow;
+
+        // 5. Detect capture — find enemy piece at target BEFORE position update
+        //    We re-search simPieces for a different piece at destination.
+        Piece captured = null;
+        for (Piece p : simPieces) {
+            if (p != activeP && p.col == toCol && p.row == toRow && p.color != activeP.color) {
+                captured = p;
+                break;
+            }
+        }
+
+        // 6. Handle en passant capture — detect if pawn moved diagonally onto empty square
+        if (captured == null && activeP.type == PieceType.PAWN && fromCol != toCol) {
+            // En passant: captured pawn is on the same row as the attacker's start row
+            for (Piece p : simPieces) {
+                if (p != activeP && p.col == toCol && p.row == fromRow
+                        && p.color != activeP.color && p.type == PieceType.PAWN) {
+                    captured = p;
+                    break;
+                }
+            }
+        }
+
+        if (captured != null) {
+            simPieces.remove(captured);
+            capturedPieces.add(captured);
+            resetCapturedPieceCache();
+        }
+
+        // 7. Handle castling — king moves 2 squares horizontally
+        castlingP = null;
+        if (activeP.type == PieceType.KING && Math.abs(toCol - fromCol) == 2) {
+            // Rook is on the far side in the direction the king moved
+            boolean kingSide = toCol > fromCol;
+            int rookFromCol = kingSide ? 7 : 0;
+            int rookToCol   = kingSide ? toCol - 1 : toCol + 1;
+            for (Piece p : simPieces) {
+                if (p.type == PieceType.ROOK && p.color == activeP.color && p.col == rookFromCol && p.row == fromRow) {
+                    castlingP = p;
+                    break;
+                }
+            }
+            if (castlingP != null) {
+                castlingP.col = rookToCol;
+                castlingP.row = fromRow;
+                castlingP.updatePixelPosition();
+            }
+        }
+
+        // 8. Build MoveRecord fields — store in absolute (unflipped) coordinates.
+        //    Must happen BEFORE updatePosition() overwrites preCol/preRow.
+        boolean isCapture = captured != null;
+        boolean isCastling = castlingP != null;
+        String san = generateSAN(activeP, toCol, toRow, isCapture, isCastling);
+
+        int recordFromCol = boardFlipped ? 7 - fromCol : fromCol;
+        int recordFromRow = boardFlipped ? 7 - fromRow : fromRow;
+        int recordToCol   = boardFlipped ? 7 - toCol   : toCol;
+        int recordToRow   = boardFlipped ? 7 - toRow   : toRow;
+
+        // 9. Commit pieces state (apply simPieces → pieces)
+        copyPieces(simPieces, pieces);
+
+        // 10. Update activeP state (moved, twoStepped, preCol/preRow)
+        activeP.updatePosition();
+
+        // 11. Handle promotion — replace pawn with promoted piece
+        if (activeP.type == PieceType.PAWN && (toRow == 0 || toRow == 7)) {
+            if (promoType == null) promoType = PieceType.QUEEN;
+            Piece promoPiece;
+            switch (promoType) {
+                case ROOK:   promoPiece = new Rook(toCol, toRow, currentColor); break;
+                case KNIGHT: promoPiece = new Knight(toCol, toRow, currentColor); break;
+                case BISHOP: promoPiece = new Bishop(toCol, toRow, currentColor); break;
+                default:     promoPiece = new Queen(toCol, toRow, currentColor); break;
+            }
+            pieces.remove(activeP);
+            pieces.add(promoPiece);
+            copyPieces(pieces, simPieces);
+            san += "=" + promoType.getNotation();
+        }
+
+        // 12. Save history snapshot
+        historyManager.saveHistorySnapshot();
+
+        // 13. Add animations
+        animations.add(new PieceAnimation(activeP, fromCol, fromRow, toCol, toRow));
+        if (castlingP != null) {
+            animations.add(new PieceAnimation(castlingP, castlingP.preCol, castlingP.preRow, castlingP.col, castlingP.row));
+        }
+
+        // 14. Build and register MoveRecord
+        MoveRecord record = new MoveRecord(activeP.type, recordFromCol, recordFromRow, recordToCol, recordToRow, currentColor, isCapture, isCastling, san);
+        if (promoType != null) {
+            record.promotionType = promoType.toString();
+        }
+        if (moveStartTimeMillis > 0) {
+            record.timeSpentSeconds = (int) ((System.currentTimeMillis() - moveStartTimeMillis) / 1000);
+        }
+        moveStartTimeMillis = System.currentTimeMillis();
+        moves.add(record);
+
+        // 15. Play sound
+        if (isCapture) {
+            SoundManager.playCapture();
+        } else {
+            SoundManager.playMove();
+        }
+
+        // 16. Clear castlingP now (after animation was added)
+        castlingP = null;
+
+        // 17. Finish the turn
+        legalMoveSquares.clear();
+        activeP = null;
+        finishTurn();
+    }
+
+    public void makeValidatedEngineMove(int fromCol, int fromRow, int toCol, int toRow, PieceType promoType) {
+        historyManager.viewEnd();
+        historyManager.capturePreMoveSnapshot();
+
+        Piece movingPiece = getPieceAt(fromCol, fromRow);
+        if (movingPiece == null || movingPiece.color != currentColor) {
+            System.err.println("Engine move rejected: no current-color piece at from-square.");
+            return;
+        }
+
+        Piece target = getPieceAt(toCol, toRow);
+        if (target != null && target.color == movingPiece.color) {
+            System.err.println("Engine move rejected: target has friendly piece.");
+            return;
+        }
+
+        if (!moveValidator.canLegallyMove(movingPiece, toCol, toRow)) {
+            System.err.println("Engine move rejected as illegal: "
+                    + fromCol + "," + fromRow + " -> " + toCol + "," + toRow);
+            return;
+        }
+
+        activeP = movingPiece;
+        PieceType movingType = movingPiece.type;
+        int movingColor = currentColor;
+        boolean isCastling = movingPiece.type == PieceType.KING && Math.abs(toCol - fromCol) == 2;
+        Piece captured = target;
+
+        if (captured == null && movingPiece.type == PieceType.PAWN && fromCol != toCol) {
+            captured = getPieceAt(toCol, fromRow);
+        }
+
+        boolean isCapture = captured != null && captured.color != movingColor;
+        String san = generateSAN(movingPiece, toCol, toRow, isCapture, isCastling);
+
+        int recordFromCol = boardFlipped ? 7 - fromCol : fromCol;
+        int recordFromRow = boardFlipped ? 7 - fromRow : fromRow;
+        int recordToCol = boardFlipped ? 7 - toCol : toCol;
+        int recordToRow = boardFlipped ? 7 - toRow : toRow;
+
+        historyManager.saveHistorySnapshot();
+
+        if (captured != null) {
+            pieces.remove(captured);
+            capturedPieces.add(captured);
+            resetCapturedPieceCache();
+        }
+
+        castlingP = null;
+        if (isCastling) {
+            boolean kingSide = toCol > fromCol;
+            int rookFromCol = kingSide ? 7 : 0;
+            int rookToCol = kingSide ? toCol - 1 : toCol + 1;
+            for (Piece p : pieces) {
+                if (p.type == PieceType.ROOK && p.color == movingColor && p.col == rookFromCol && p.row == fromRow) {
+                    castlingP = p;
+                    break;
+                }
+            }
+            if (castlingP != null) {
+                castlingP.col = rookToCol;
+                castlingP.row = fromRow;
+                castlingP.updatePixelPosition();
+            }
+        }
+
+        movingPiece.col = toCol;
+        movingPiece.row = toRow;
+        movingPiece.updatePosition();
+
+        Piece animatedPiece = movingPiece;
+        if (movingPiece.type == PieceType.PAWN && (toRow == 0 || toRow == 7)) {
+            if (promoType == null) {
+                promoType = PieceType.QUEEN;
+            }
+            Piece promoPiece;
+            switch (promoType) {
+                case ROOK: promoPiece = new Rook(toCol, toRow, movingColor); break;
+                case KNIGHT: promoPiece = new Knight(toCol, toRow, movingColor); break;
+                case BISHOP: promoPiece = new Bishop(toCol, toRow, movingColor); break;
+                default: promoPiece = new Queen(toCol, toRow, movingColor); break;
+            }
+            promoPiece.moved = true;
+            promoPiece.preCol = toCol;
+            promoPiece.preRow = toRow;
+            pieces.remove(movingPiece);
+            pieces.add(promoPiece);
+            animatedPiece = promoPiece;
+            san += "=" + promoType.getNotation();
+        }
+
+        copyPieces(pieces, simPieces);
+
+        animations.add(new PieceAnimation(animatedPiece, fromCol, fromRow, toCol, toRow));
+        if (castlingP != null) {
+            animations.add(new PieceAnimation(castlingP, castlingP.preCol, castlingP.preRow, castlingP.col, castlingP.row));
+        }
+
+        MoveRecord record = new MoveRecord(movingType, recordFromCol, recordFromRow, recordToCol, recordToRow, movingColor, isCapture, isCastling, san);
+        if (promoType != null) {
+            record.promotionType = promoType.toString();
+        }
+        if (moveStartTimeMillis > 0) {
+            record.timeSpentSeconds = (int) ((System.currentTimeMillis() - moveStartTimeMillis) / 1000);
+        }
+        moveStartTimeMillis = System.currentTimeMillis();
+        moves.add(record);
+
+        if (isCapture) {
+            SoundManager.playCapture();
+        } else {
+            SoundManager.playMove();
+        }
+
+        castlingP = null;
+        legalMoveSquares.clear();
+        activeP = null;
+        finishTurn();
+    }
+
+    /**
+     * Returns the piece at an absolute (unflipped) board coordinate.
+     * Pieces in 'pieces' are stored in display coords, so we un-flip if needed.
+     */
+    private Piece getPieceAtAbsolute(int absCol, int absRow) {
+        int col = boardFlipped ? 7 - absCol : absCol;
+        int row = boardFlipped ? 7 - absRow : absRow;
+        return getPieceAt(col, row);
+    }
+
+
+
+    // Toggle to stabilize engine integration if your FEN metadata (en-passant/counters)
+    // might be temporarily incorrect.
+    private static final boolean STOCKFISH_STABLE_FEN = true;
+
     public String getFEN() {
         StringBuilder fen = new StringBuilder();
-        // Build piece placement (ranks 8 to 1, row 0 = rank 1, row 7 = rank 8)
-        // FEN displays from White's perspective: rank 8 (black side) first, then down to rank 1 (white side)
+
+        // Build piece placement (ranks 8 to 1, row 0 = rank 8, row 7 = rank 1)
         for (int rank = 8; rank >= 1; rank--) {
-            int row = rank - 1; // Convert rank to internal row
+            int row = 8 - rank; // Convert rank to internal row
             int emptyCount = 0;
             for (int col = 0; col < 8; col++) {
-                Piece piece = getPieceAt(col, row);
+                Piece piece = getPieceAtAbsolute(col, row);
                 if (piece != null) {
                     if (emptyCount > 0) {
                         fen.append(emptyCount);
@@ -688,18 +968,103 @@ public class GameManager {
         fen.append(' ').append(castling);
 
         // En passant target
-        String enPassant = getEnPassantSquare();
+        // Stockfish integration stability: you may need en-passant/counters to be conservative.
+        // When enabled, force en-passant to '-' and use safe clocks.
+        String enPassant;
+        int halfmove;
+        int fullmove;
+
+        if (STOCKFISH_STABLE_FEN) {
+            enPassant = "-";
+            halfmove = 0;
+            fullmove = 1;
+        } else {
+            enPassant = getEnPassantSquare();
+            halfmove = getHalfmoveClock();
+            fullmove = moves.size() / 2 + 1;
+        }
+
         fen.append(' ').append(enPassant);
-
-        // Halfmove clock
-        int halfmove = getHalfmoveClock();
         fen.append(' ').append(halfmove);
-
-        // Fullmove number
-        int fullmove = moves.size() / 2 + 1;
         fen.append(' ').append(fullmove);
 
+
         return fen.toString();
+    }
+
+    public String getPGN() {
+        StringBuilder pgn = new StringBuilder();
+        
+        // Add headers
+        String whitePlayer = "White";
+        String blackPlayer = "Black";
+        String event = "Chess Game";
+        String site = "Local";
+        String date = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd"));
+        String round = "1";
+        String result = getGameResultString();
+        
+        pgn.append("[Event \"").append(event).append("\"]\n");
+        pgn.append("[Site \"").append(site).append("\"]\n");
+        pgn.append("[Date \"").append(date).append("\"]\n");
+        pgn.append("[Round \"").append(round).append("\"]\n");
+        pgn.append("[White \"").append(whitePlayer).append("\"]\n");
+        pgn.append("[Black \"").append(blackPlayer).append("\"]\n");
+        pgn.append("[Result \"").append(result).append("\"]\n\n");
+        
+        // Add move text
+        int totalMoves = moves.size();
+        int totalPairs = (totalMoves + 1) / 2;
+        
+        for (int i = 0; i < totalPairs; i++) {
+            int moveNumber = i + 1;
+            pgn.append(moveNumber).append(". ");
+            
+            // White move
+            MoveRecord whiteMove = moves.get(i * 2);
+            pgn.append(whiteMove.san);
+            
+            // Black move (if exists)
+            if (i * 2 + 1 < totalMoves) {
+                MoveRecord blackMove = moves.get(i * 2 + 1);
+                pgn.append(" ").append(blackMove.san);
+            }
+            
+            pgn.append(" ");
+            
+            // Add result every 8 moves for readability (optional)
+            if ((i + 1) % 8 == 0) {
+                pgn.append("\n");
+            }
+        }
+        
+        pgn.append(result);
+        
+        return pgn.toString();
+    }
+    
+    private String getGameResultString() {
+        if (whiteResign) {
+            return "0-1";
+        } else if (blackResign) {
+            return "1-0";
+        } else if (timeOutWinner != null) {
+            if (timeOutWinner == WHITE) {
+                return "1-0";
+            } else {
+                return "0-1";
+            }
+        } else if (stalemate) {
+            return "1/2-1/2";
+        } else if (gameOver) {
+            // Checkmate - currentColor lost
+            if (currentColor == WHITE) {
+                return "0-1";
+            } else {
+                return "1-0";
+            }
+        }
+        return "*";
     }
 
     private Piece getPieceAt(int col, int row) {
@@ -739,7 +1104,8 @@ public class GameManager {
         // Find relevant rook
         int rookCol = kingSide ? 7 : 0;
         for (Piece p : pieces) {
-            if (p.type == PieceType.ROOK && p.color == color && p.col == rookCol) {
+            int absCol = boardFlipped ? 7 - p.col : p.col;
+            if (p.type == PieceType.ROOK && p.color == color && absCol == rookCol) {
                 return !p.moved;
             }
         }

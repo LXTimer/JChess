@@ -28,15 +28,16 @@ public class GamePanelMoveLogRenderer {
     private final Rectangle undoWhiteRect;
     private final Rectangle undoBlackRect;
     private final Rectangle fenButtonRect;
+    private final Rectangle pgnButtonRect;
     private final Rectangle navStartRect;
     private final Rectangle navPrevRect;
     private final Rectangle navNextRect;
     private final Rectangle navEndRect;
 
-    private static final int SIDE_PANEL_X = Board.SIZE * 8 + 12;
-    private static final int SIDE_PANEL_Y = 45;
-    private static final int SIDE_PANEL_WIDTH = GamePanel.WIDTH - SIDE_PANEL_X - 16;
-    private static final int SIDE_PANEL_HEIGHT = 510;
+    private static final int SIDE_PANEL_X = Board.SIZE * 8 + 10;
+    private static final int SIDE_PANEL_Y = 35;
+    private static final int SIDE_PANEL_WIDTH = GamePanel.WIDTH - SIDE_PANEL_X - 12;
+    private static final int SIDE_PANEL_HEIGHT = 525;
 
     // Unicode chess symbols for piece types
     private static final String[] UNICODE_PIECES = {
@@ -73,11 +74,11 @@ public class GamePanelMoveLogRenderer {
         if (firstChar >= 'A' && firstChar <= 'Z') {
             
             switch (firstChar) {
-                case 'K': unicodeSymbol = (color == 0) ? "\u2654" : "\u265A"; break; // King
-                case 'Q': unicodeSymbol = (color == 0) ? "\u2655" : "\u265B"; break; // Queen
-                case 'R': unicodeSymbol = (color == 0) ? "\u2656" : "\u265C"; break; // Rook
-                case 'B': unicodeSymbol = (color == 0) ? "\u2657" : "\u265D"; break; // Bishop
-                case 'N': unicodeSymbol = (color == 0) ? "\u2658" : "\u265E"; break; // Knight
+                case 'K': unicodeSymbol = (color == 1) ? "\u2654" : "\u265A"; break; // King
+                case 'Q': unicodeSymbol = (color == 1) ? "\u2655" : "\u265B"; break; // Queen
+                case 'R': unicodeSymbol = (color == 1) ? "\u2656" : "\u265C"; break; // Rook
+                case 'B': unicodeSymbol = (color == 1) ? "\u2657" : "\u265D"; break; // Bishop
+                case 'N': unicodeSymbol = (color == 1) ? "\u2658" : "\u265E"; break; // Knight
             }
         }
         
@@ -87,7 +88,7 @@ public class GamePanelMoveLogRenderer {
         return san;
     }
 
-    // Format time spent on a move (e.g., "5s" or "1m02s")
+    // Format time spent on a move 
     private String formatMoveTime(int seconds) {
         if (seconds <= 0) return "";
         if (seconds < 60) return seconds + "s";
@@ -108,6 +109,7 @@ public class GamePanelMoveLogRenderer {
             Rectangle undoWhiteRect,
             Rectangle undoBlackRect,
             Rectangle fenButtonRect,
+            Rectangle pgnButtonRect,
             Rectangle navStartRect,
             Rectangle navPrevRect,
             Rectangle navNextRect,
@@ -123,6 +125,7 @@ public class GamePanelMoveLogRenderer {
         this.undoWhiteRect = undoWhiteRect;
         this.undoBlackRect = undoBlackRect;
         this.fenButtonRect = fenButtonRect;
+        this.pgnButtonRect = pgnButtonRect;
         this.navStartRect = navStartRect;
         this.navPrevRect = navPrevRect;
         this.navNextRect = navNextRect;
@@ -130,40 +133,47 @@ public class GamePanelMoveLogRenderer {
     }
 
     public void drawMoveLog(Graphics2D g2) {
-        int boxX = SIDE_PANEL_X + 16;
-        int boxY = 150;
-        int boxWidth = SIDE_PANEL_WIDTH - 32;
-        int boxHeight = 300;
+        int boxX = SIDE_PANEL_X + 14;
+        int boxY = SIDE_PANEL_Y + 110;
+        int boxWidth = SIDE_PANEL_WIDTH - 28;
+        int boxHeight = 305;
         int viewMoveIndex = gm.getViewMoveIndex();
         int totalMoves = gm.moves.size();
         int totalPairs = (totalMoves + 1) / 2;
         int activeMoveIndex = (viewMoveIndex == -1) ? (totalMoves - 1) : (viewMoveIndex - 1);
         boolean isFlipped = gm.isBoardFlipped();
 
-        g2.setColor(new Color(10, 12, 16, 120));
-        g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
-        g2.setStroke(new BasicStroke(1.5f));
-        g2.setColor(new Color(255, 255, 255, 30));
-        g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 8, 8);
+        // Draw move log panel background with subtle gradient effect
+        g2.setColor(new Color(8, 10, 14, 130));
+        g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 10, 10);
+        g2.setStroke(new BasicStroke(1.2f));
+        g2.setColor(new Color(255, 255, 255, 25));
+        g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 10, 10);
 
-        g2.setFont(new Font("Roboto", Font.BOLD, 13));
-        g2.setColor(new Color(160, 170, 185));
-        g2.drawString("MOVE LOG", boxX + 12, boxY + 22);
+        // Section header with subtle underline
+        g2.setFont(new Font("Roboto", Font.BOLD, 12));
+        g2.setColor(new Color(140, 150, 165));
+        g2.drawString("MOVE LOG", boxX + 12, boxY + 20);
+        g2.setColor(new Color(255, 255, 255, 12));
+        g2.fillRect(boxX + 12, boxY + 26, boxWidth - 24, 1);
 
         int buttonWidth = 30;
         int buttonHeight = 20;
-        int buttonX = boxX + boxWidth - buttonWidth - 10;
+        int buttonX = boxX + boxWidth - buttonWidth - 8;
         int fenButtonWidth = 44;
-        int fenButtonX = buttonX - fenButtonWidth - 8;
-        int buttonY = boxY + 5;
+        int pgnButtonWidth = 44;
+        int fenButtonX = buttonX - fenButtonWidth - 6;
+        int pgnButtonX = fenButtonX - pgnButtonWidth - 6;
+        int buttonY = boxY + 4;
         flipButtonRect.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
         fenButtonRect.setBounds(fenButtonX, buttonY, fenButtonWidth, buttonHeight);
+        pgnButtonRect.setBounds(pgnButtonX, buttonY, pgnButtonWidth, buttonHeight);
 
         int resignButtonWidth = 30;
         int resignButtonHeight = 30;
-        int resignButtonX = boxX + boxWidth - resignButtonWidth - 10;
+        int resignButtonX = boxX + boxWidth - resignButtonWidth - 8;
         int undoButtonWidth = 30;
-        int buttonSpacing = 8;
+        int buttonSpacing = 6;
         int undoButtonX = resignButtonX - undoButtonWidth - buttonSpacing;
         int resignTopY = boxY + boxHeight - resignButtonHeight - 310;
         int resignBottomY = boxY + boxHeight - resignButtonHeight + 40;
@@ -195,11 +205,17 @@ public class GamePanelMoveLogRenderer {
 
         boolean canUndo = gm.canUndo();
         boolean hoverFen = fenButtonRect.contains(mouse.x, mouse.y);
+        boolean hoverPgn = pgnButtonRect.contains(mouse.x, mouse.y);
         boolean hoverFlip = flipButtonRect.contains(mouse.x, mouse.y);
         boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
         boolean hoverResignWhite = resignWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverResignBlack = resignBlackRect.contains(mouse.x, mouse.y);
+
+        g2.setColor(hoverPgn ? new Color(76, 146, 220, 220) : new Color(52, 98, 155, 185));
+        g2.fillRoundRect(pgnButtonX, buttonY, pgnButtonWidth, buttonHeight, 4, 4);
+        g2.setColor(new Color(200, 200, 200));
+        g2.setStroke(new BasicStroke(1.5f));
 
         g2.setColor(hoverFen ? new Color(76, 146, 220, 220) : new Color(52, 98, 155, 185));
         g2.fillRoundRect(fenButtonX, buttonY, fenButtonWidth, buttonHeight, 4, 4);
@@ -212,13 +228,18 @@ public class GamePanelMoveLogRenderer {
         g2.setStroke(new BasicStroke(1.5f));
 
         g2.setFont(new Font("Roboto", Font.BOLD, 11));
+        FontMetrics pgnMetrics = g2.getFontMetrics();
+        int pgnTextX = pgnButtonX + (pgnButtonWidth - pgnMetrics.stringWidth("PGN")) / 2;
+        int pgnTextY = buttonY + (buttonHeight + pgnMetrics.getAscent() - pgnMetrics.getDescent()) / 2 - 1;
+        g2.drawString("PGN", pgnTextX, pgnTextY);
+
         FontMetrics fenMetrics = g2.getFontMetrics();
         int fenTextX = fenButtonX + (fenButtonWidth - fenMetrics.stringWidth("FEN")) / 2;
         int fenTextY = buttonY + (buttonHeight + fenMetrics.getAscent() - fenMetrics.getDescent()) / 2 - 1;
         g2.drawString("FEN", fenTextX, fenTextY);
 
-        Color navHoverColor = new Color(120, 210, 120, 220);
-        Color navBaseColor = new Color(0, 0, 0, 200);
+        Color navHoverColor = new Color(100, 200, 150, 220);
+        Color navBaseColor = new Color(20, 25, 35, 200);
 
         Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(80, 80, 80, 180);
         g2.setColor(hoverUndoWhite ? navHoverColor : undoBase);
@@ -302,6 +323,12 @@ public class GamePanelMoveLogRenderer {
 
             int currentY = startY + i * rowHeight;
 
+            // Alternating row background for better readability
+            if (i % 2 == 0) {
+                g2.setColor(new Color(255, 255, 255, 5));
+                g2.fillRoundRect(col1X - 5, currentY - 15, col3X - col1X + 85, rowHeight, 3, 3);
+            }
+
             g2.setColor(new Color(110, 120, 135));
             g2.drawString((pairIndex + 1) + ".", col1X, currentY);
 
@@ -312,11 +339,13 @@ public class GamePanelMoveLogRenderer {
                 
                 boolean isLastMove = (whiteMoveIndex == activeMoveIndex);
                 if (isLastMove) {
-                    g2.setColor(new Color(0, 120, 215, 60));
-                    g2.fillRoundRect(col2X - 5, currentY - 14, 80, 18, 4, 4);
+                    g2.setColor(new Color(0, 120, 215, 80));
+                    g2.fillRoundRect(col2X - 5, currentY - 14, 80, 18, 5, 5);
                     g2.setColor(new Color(255, 255, 255));
+                    g2.setFont(new Font("Segoe UI Symbol", Font.BOLD, 13));
                 } else {
                     g2.setColor(new Color(210, 215, 225));
+                    g2.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 13));
                 }
                 g2.drawString(fullText, col2X, currentY);
             }
@@ -328,11 +357,13 @@ public class GamePanelMoveLogRenderer {
                 
                 boolean isLastMove = (blackMoveIndex == activeMoveIndex);
                 if (isLastMove) {
-                    g2.setColor(new Color(0, 120, 215, 60));
-                    g2.fillRoundRect(col3X - 5, currentY - 14, 80, 18, 4, 4);
+                    g2.setColor(new Color(0, 120, 215, 80));
+                    g2.fillRoundRect(col3X - 5, currentY - 14, 80, 18, 5, 5);
                     g2.setColor(new Color(255, 255, 255));
+                    g2.setFont(new Font("Segoe UI Symbol", Font.BOLD, 13));
                 } else {
                     g2.setColor(new Color(210, 215, 225));
+                    g2.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 13));
                 }
                 g2.drawString(fullText, col3X, currentY);
             }

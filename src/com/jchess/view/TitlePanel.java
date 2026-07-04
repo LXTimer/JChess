@@ -15,6 +15,7 @@ public class TitlePanel extends JPanel {
     private JButton helpButton;
     private JComboBox<String> timeComboBox;
     private JComboBox<String> colorComboBox;
+    private JComboBox<String> modeComboBox;
     public boolean isPlayerWhite = true; // Default to white, can be changed based on selection
 
     // Fade effect fields
@@ -60,7 +61,7 @@ public class TitlePanel extends JPanel {
         String[] timeOptions = {"1 min", "3 min", "5 min", "10 min", "15 min", "30 min", "60 min"};
         timeComboBox = new JComboBox<>(timeOptions);
         timeComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
-        timeComboBox.setBounds(325, 380, 250, 35);
+        timeComboBox.setBounds(325, 360, 250, 35);
         timeComboBox.setSelectedItem("10 min");
         timeComboBox.setBackground(new Color(60, 60, 60));
         timeComboBox.setForeground(Color.WHITE);
@@ -70,16 +71,26 @@ public class TitlePanel extends JPanel {
         String[] colorOptions = {"Random", "White", "Black"};
         colorComboBox = new JComboBox<>(colorOptions);
         colorComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
-        colorComboBox.setBounds(325, 420, 250, 35);
+        colorComboBox.setBounds(325, 400, 250, 35);
         colorComboBox.setSelectedItem("Random");
         colorComboBox.setBackground(new Color(60, 60, 60));
         colorComboBox.setForeground(Color.WHITE);
         add(colorComboBox);
 
+        // Mode selector
+        String[] modeOptions = {"Local Multiplayer", "vs Computer (Stockfish)"};
+        modeComboBox = new JComboBox<>(modeOptions);
+        modeComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
+        modeComboBox.setBounds(325, 440, 250, 35);
+        modeComboBox.setSelectedItem("Local Multiplayer");
+        modeComboBox.setBackground(new Color(60, 60, 60));
+        modeComboBox.setForeground(Color.WHITE);
+        add(modeComboBox);
+
         // Create start button
         startButton = new JButton("Start Game");
         startButton.setFont(new Font("Roboto", Font.PLAIN, 24));
-        startButton.setBounds(300, 480, 300, 60);
+        startButton.setBounds(300, 500, 300, 60);
         startButton.setBackground(new Color(100, 150, 200));
         startButton.setForeground(Color.WHITE);
         startButton.setFocusPainted(false);
@@ -96,10 +107,11 @@ public class TitlePanel extends JPanel {
                 } else {
                     isPlayerWhite = selectedColor.equals("White");
                 }
+                boolean vsComputer = modeComboBox.getSelectedItem().equals("vs Computer (Stockfish)");
+                gamePanel.setVsComputer(vsComputer);
                 gamePanel.setPlayerColor(isPlayerWhite);
                 startGame(selectedMinutes * 60);
             }
-
         });
 
         startButton.addMouseListener(new MouseAdapter() {

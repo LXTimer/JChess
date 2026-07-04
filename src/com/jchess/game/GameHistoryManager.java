@@ -79,7 +79,13 @@ public class GameHistoryManager {
         gm.whiteResign = whiteResignHistory.remove(lastIndex);
         gm.blackResign = blackResignHistory.remove(lastIndex);
         gm.boardFlipped = boardFlippedHistory.remove(lastIndex);
-        GameManager.isBoardFlipped = gm.boardFlipped;
+
+        for (Piece p : gm.pieces) {
+            p.boardFlipped = gm.boardFlipped;
+        }
+        for (Piece p : GameManager.simPieces) {
+            p.boardFlipped = gm.boardFlipped;
+        }
 
         if (!simPiecesHistory.isEmpty()) {
             simPiecesHistory.remove(simPiecesHistory.size() - 1);
@@ -199,6 +205,7 @@ public class GameHistoryManager {
                 piece.preRow = 7 - piece.preRow;
                 piece.x = piece.getX(piece.col);
                 piece.y = piece.getY(piece.row);
+                piece.boardFlipped = true;
             }
         }
 

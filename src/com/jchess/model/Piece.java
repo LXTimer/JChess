@@ -17,7 +17,7 @@ public class Piece {
     public int col, row, preCol, preRow;
     public int color;
     public Piece hittingP;
-    public boolean moved, twoStepped;
+    public boolean moved, twoStepped, boardFlipped;
 
     // Constrcutor
     public Piece(int col, int row, int color) {
@@ -230,6 +230,7 @@ public class Piece {
         clone.hittingP = null;
         clone.moved = moved;
         clone.twoStepped = twoStepped;
+        clone.boardFlipped = boardFlipped;
         return clone;
     }
 
