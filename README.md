@@ -10,6 +10,7 @@ The game enforces all official chess rules — including **castling**, **en pa
 ## 🎮 Features
 
 ### Core Gameplay
+- **Play against Stockfish AI** — integrated Universal Chess Interface (UCI) engine
 - **Full chess rule enforcement** — legal move validation, check/checkmate/stalemate detection, castling, en passant, pawn promotion
 - **Drag-and-drop piece movement** with visual feedback (move dots, capture rings, hover effects)
 - **Real-time legal move highlighting** — shows all valid squares for the selected piece
@@ -28,6 +29,14 @@ The game enforces all official chess rules — including **castling**, **en pa
 - **Right-click annotations** — draw highlight circles and arrows on the board for analysis
 - **Game-over overlay** — displays result (checkmate, stalemate, resignation, timeout) with "Play again" and "Main Menu" buttons
 - **Title screen** — initial menu to start a new game
+
+### Stockfish Integration
+JChess uses the [Stockfish](https://stockfishchess.org/) chess engine via UCI protocol:
+- The engine runs as an external process and communicates through stdin/stdout
+- Move search time is configurable via the movetime parameter
+- FEN position updates are sent to the engine after each game move
+- The engine path is stored in `stockfish_path.txt` (defaults to `stockfish/stockfish-windows-x86-64-avx2.exe`)
+- Automatic fallback path detection and reconnection on failure
 
 ### Navigation & History
 - **Move navigation** — browse through the game history with `←`/`→`/`↑`/`↓` keys or on-screen navigation buttons (`|<` `<` `>` `>|`)
@@ -115,11 +124,25 @@ java -cp bin com.jchess.Main
 javac -d bin -sourcepath src src/com/jchess/Main.java && java -cp bin com.jchess.Main
 ```
 
+### Stockfish Configuration
+By default, JChess looks for the Stockfish engine in the following order:
+1. User-configured path saved in `stockfish_path.txt`
+2. `stockfish/stockfish-windows-x86-64-avx2.exe` (included with the project)
+3. `stockfish.exe` (system PATH)
+
 ---
 
 ## 📄 FEN Format
 
 The `getFEN()` method in `GameManager` exports the board state in standard [Forsyth–Edwards Notation](https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation):
+
+## 🤖 Playing Against Stockfish
+
+- **Starting a game**: Select "Play vs Computer" from the title screen to start a game against Stockfish
+- **Move input**: Make your move as normal (White plays first)
+- **Engine response**: After your move, Stockfish will automatically calculate and make its move
+- **Strength**: Engine thinking time is set to 1 second per move by default
+- **Stop engine**: The engine can be stopped at any time from the game over screen or main menu
 
 ## 🖱️ Controls
 
