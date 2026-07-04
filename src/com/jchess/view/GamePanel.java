@@ -476,7 +476,7 @@ public class GamePanel extends JPanel {
             g2.setComposite(oldComposite);
         }
 
-        board.draw(g2);
+        board.draw(g2, gm.isBoardFlipped());
 
         // Draw highlighted move on the board depending on current view (live or history)
         int viewIndex = gm.getViewMoveIndex();
@@ -785,7 +785,8 @@ public class GamePanel extends JPanel {
             resultTitle = "Stalemate";
             resultDetail = gm.getMoveValidator().isInsufficientMaterial() ? "by Insufficient Material" : "No legal moves available";
         } else {
-            resultTitle = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? "Black Wins" : "White Wins";
+            // currentColor is the winner (the side that just delivered checkmate)
+            resultTitle = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? "White Wins" : "Black Wins";
             resultDetail = "Checkmate";
         }
 

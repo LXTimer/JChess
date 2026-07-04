@@ -18,6 +18,10 @@ public class Board {
     private static final Color TEXT_ON_DARK = new Color(245, 222, 179);
 
     public void draw(Graphics2D g2) {
+        draw(g2, false);
+    }
+
+    public void draw(Graphics2D g2, boolean flipped) {
         
         g2.setFont(new Font("SansSerif", Font.BOLD, 14));
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -29,8 +33,12 @@ public class Board {
                 g2.setColor(isLight ? LIGHT : DARK);
                 g2.fillRect(c * SIZE, r * SIZE, SIZE, SIZE);
                 
-                String file = (char) ('a' + c) + "";       
-                String rank = (8 - r) + ""; 
+                // When flipped, invert the coordinate labels
+                int displayCol = flipped ? 7 - c : c;
+                int displayRow = flipped ? 7 - r : r;
+                
+                String file = (char) ('a' + displayCol) + "";       
+                String rank = (8 - displayRow) + ""; 
                 
                 g2.setColor(isLight ? TEXT_ON_LIGHT : TEXT_ON_DARK);
                 

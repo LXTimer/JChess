@@ -56,11 +56,7 @@ public class GamePanelMoveLogRenderer {
     };
 
     // Convert a SAN string to use Unicode chess symbols
-    // When board is flipped, invert the colors so the display matches the player's perspective
     private String sanToUnicode(String san, int color) {
-        if (gm.isBoardFlipped()) {
-            color = (color == 0) ? 1 : 0;
-        }
         if (san == null || san.isEmpty()) return san;
         
         // Handle castling - no piece symbol needed
@@ -72,13 +68,14 @@ public class GamePanelMoveLogRenderer {
         String unicodeSymbol = null;
         
         if (firstChar >= 'A' && firstChar <= 'Z') {
-            
+            // color == 0 (WHITE) -> white unicode pieces
+            // color == 1 (BLACK) -> black unicode pieces
             switch (firstChar) {
-                case 'K': unicodeSymbol = (color == 1) ? "\u2654" : "\u265A"; break; // King
-                case 'Q': unicodeSymbol = (color == 1) ? "\u2655" : "\u265B"; break; // Queen
-                case 'R': unicodeSymbol = (color == 1) ? "\u2656" : "\u265C"; break; // Rook
-                case 'B': unicodeSymbol = (color == 1) ? "\u2657" : "\u265D"; break; // Bishop
-                case 'N': unicodeSymbol = (color == 1) ? "\u2658" : "\u265E"; break; // Knight
+                case 'K': unicodeSymbol = (color == 1) ? "\u265A" : "\u2654"; break; // King
+                case 'Q': unicodeSymbol = (color == 1) ? "\u265B" : "\u2655"; break; // Queen
+                case 'R': unicodeSymbol = (color == 1) ? "\u265C" : "\u2656"; break; // Rook
+                case 'B': unicodeSymbol = (color == 1) ? "\u265D" : "\u2657"; break; // Bishop
+                case 'N': unicodeSymbol = (color == 1) ? "\u265E" : "\u2658"; break; // Knight
             }
         }
         

@@ -1059,11 +1059,11 @@ public class GameManager {
         } else if (stalemate) {
             return "1/2-1/2";
         } else if (gameOver) {
-            // Checkmate - currentColor lost
+            // Checkmate - currentColor won (the side that just delivered checkmate wins)
             if (currentColor == WHITE) {
-                return "0-1";
-            } else {
                 return "1-0";
+            } else {
+                return "0-1";
             }
         }
         return "*";

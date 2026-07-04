@@ -239,27 +239,35 @@ public class MoveValidator {
     }
 
     public boolean isInsufficientMaterial() {
-        boolean whiteHasSufficient = false;
-        boolean blackHasSufficient = false;
+        int whiteMinor = 0;
+        int blackMinor = 0;
+        boolean whiteHasMajor = false;
+        boolean blackHasMajor = false;
 
         for (Piece p : gm.pieces) {
             if (p.type == PieceType.PAWN || p.type == PieceType.ROOK || p.type == PieceType.QUEEN) {
                 if (p.color == WHITE) {
-                    whiteHasSufficient = true;
+                    whiteHasMajor = true;
                 } else {
-                    blackHasSufficient = true;
+                    blackHasMajor = true;
                 }
             } else if (p.type == PieceType.BISHOP || p.type == PieceType.KNIGHT) {
                 if (p.color == WHITE) {
-                    whiteHasSufficient = true;
+                    whiteMinor++;
                 } else {
-                    blackHasSufficient = true;
+                    blackMinor++;
                 }
             }
         }
 
-        gm.stalemate = !whiteHasSufficient && !blackHasSufficient;
-        return !whiteHasSufficient && !blackHasSufficient;
+        // Insufficient material if both sides have no pawns/rooks/queens
+        // AND at most one minor piece each (king + bishop/knight vs king is draw)
+        // King + bishop vs king + bishop of same color is also draw
+        if (whiteHasMajor || blackHasMajor) {
+            return false;
+        }
+        // Both sides have only kings + at most one minor piece each
+        return whiteMinor <= 1 && blackMinor <= 1;
     }
 
     private Piece getKing(int color) {
