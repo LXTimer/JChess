@@ -3,7 +3,8 @@
 A classical chess game implemented in **Java** with a Swing-based graphical interface.  
 The game enforces all official chess rules — including **castling**, **en passant**, **pawn promotion**, and **checkmate/stalemate detection** — with a move history log, per-player timers, and board navigation.
 
-![JChess Screenshot](screenshots/jchess_board.png)
+![JChess Screenshot](screenshots/jchess_1.png)
+![JChess Screenshot](screenshots/jchess_2.png)
 
 ---
 

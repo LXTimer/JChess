@@ -53,7 +53,7 @@ public class TitlePanel extends JPanel {
         JLabel subtitleLabel = new JLabel("A Java Chess Game");
         subtitleLabel.setFont(new Font("Roboto", Font.PLAIN, 24));
         subtitleLabel.setForeground(new Color(150, 150, 150));
-        subtitleLabel.setBounds(250, 320, 400, 50);
+        subtitleLabel.setBounds(250, 300, 400, 50);
         subtitleLabel.setHorizontalAlignment(SwingConstants.CENTER);
         add(subtitleLabel);
 
