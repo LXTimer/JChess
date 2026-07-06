@@ -22,13 +22,11 @@ public class GamePanelMoveLogRenderer {
     private final BufferedImage resignIcon;
     private final BufferedImage undoIcon;
 
-    private final Rectangle flipButtonRect;
+    private final Rectangle menuButtonRect;
     private final Rectangle resignWhiteRect;
     private final Rectangle resignBlackRect;
     private final Rectangle undoWhiteRect;
     private final Rectangle undoBlackRect;
-    private final Rectangle fenButtonRect;
-    private final Rectangle pgnButtonRect;
     private final Rectangle navStartRect;
     private final Rectangle navPrevRect;
     private final Rectangle navNextRect;
@@ -100,13 +98,11 @@ public class GamePanelMoveLogRenderer {
             BufferedImage flipBoardIcon,
             BufferedImage resignIcon,
             BufferedImage undoIcon,
-            Rectangle flipButtonRect,
+            Rectangle menuButtonRect,
             Rectangle resignWhiteRect,
             Rectangle resignBlackRect,
             Rectangle undoWhiteRect,
             Rectangle undoBlackRect,
-            Rectangle fenButtonRect,
-            Rectangle pgnButtonRect,
             Rectangle navStartRect,
             Rectangle navPrevRect,
             Rectangle navNextRect,
@@ -116,13 +112,11 @@ public class GamePanelMoveLogRenderer {
         this.flipBoardIcon = flipBoardIcon;
         this.resignIcon = resignIcon;
         this.undoIcon = undoIcon;
-        this.flipButtonRect = flipButtonRect;
+        this.menuButtonRect = menuButtonRect;
         this.resignWhiteRect = resignWhiteRect;
         this.resignBlackRect = resignBlackRect;
         this.undoWhiteRect = undoWhiteRect;
         this.undoBlackRect = undoBlackRect;
-        this.fenButtonRect = fenButtonRect;
-        this.pgnButtonRect = pgnButtonRect;
         this.navStartRect = navStartRect;
         this.navPrevRect = navPrevRect;
         this.navNextRect = navNextRect;
@@ -154,17 +148,12 @@ public class GamePanelMoveLogRenderer {
         g2.setColor(new Color(255, 255, 255, 12));
         g2.fillRect(boxX + 12, boxY + 26, boxWidth - 24, 1);
 
-        int buttonWidth = 30;
-        int buttonHeight = 20;
-        int buttonX = boxX + boxWidth - buttonWidth - 8;
-        int fenButtonWidth = 44;
-        int pgnButtonWidth = 44;
-        int fenButtonX = buttonX - fenButtonWidth - 6;
-        int pgnButtonX = fenButtonX - pgnButtonWidth - 6;
+        // Single "Menu" dropdown button placed at the far right corner
+        int menuButtonWidth = 50;
+        int menuButtonHeight = 20;
+        int menuButtonX = boxX + boxWidth - menuButtonWidth - 8;
         int buttonY = boxY + 4;
-        flipButtonRect.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
-        fenButtonRect.setBounds(fenButtonX, buttonY, fenButtonWidth, buttonHeight);
-        pgnButtonRect.setBounds(pgnButtonX, buttonY, pgnButtonWidth, buttonHeight);
+        menuButtonRect.setBounds(menuButtonX, buttonY, menuButtonWidth, menuButtonHeight);
 
         int resignButtonWidth = 30;
         int resignButtonHeight = 30;
@@ -200,45 +189,36 @@ public class GamePanelMoveLogRenderer {
         navNextRect.setBounds(navButtonX3, navButtonY, navButtonWidth, navButtonHeight);
         navEndRect.setBounds(navButtonX4, navButtonY, navButtonWidth, navButtonHeight);
 
+        boolean canGoStart = !gm.moves.isEmpty() && gm.getViewMoveIndex() != 0;
+        boolean canGoPrev = !gm.moves.isEmpty() && (gm.getViewMoveIndex() > 0 || gm.getViewMoveIndex() == -1);
+        boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
+        boolean canGoEnd = gm.getViewMoveIndex() != -1;
         boolean canUndo = gm.canUndo();
-        boolean hoverFen = fenButtonRect.contains(mouse.x, mouse.y);
-        boolean hoverPgn = pgnButtonRect.contains(mouse.x, mouse.y);
-        boolean hoverFlip = flipButtonRect.contains(mouse.x, mouse.y);
+        boolean canResign = !gm.gameOver && !gm.stalemate;
+        boolean hoverMenu = menuButtonRect.contains(mouse.x, mouse.y);
         boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
-        boolean hoverResignWhite = resignWhiteRect.contains(mouse.x, mouse.y);
-        boolean hoverResignBlack = resignBlackRect.contains(mouse.x, mouse.y);
+        boolean hoverResignWhite = canResign && resignWhiteRect.contains(mouse.x, mouse.y);
+        boolean hoverResignBlack = canResign && resignBlackRect.contains(mouse.x, mouse.y);
 
-        g2.setColor(hoverPgn ? new Color(76, 146, 220, 220) : new Color(52, 98, 155, 185));
-        g2.fillRoundRect(pgnButtonX, buttonY, pgnButtonWidth, buttonHeight, 4, 4);
-        g2.setColor(new Color(200, 200, 200));
-        g2.setStroke(new BasicStroke(1.5f));
-
-        g2.setColor(hoverFen ? new Color(76, 146, 220, 220) : new Color(52, 98, 155, 185));
-        g2.fillRoundRect(fenButtonX, buttonY, fenButtonWidth, buttonHeight, 4, 4);
-        g2.setColor(new Color(200, 200, 200));
-        g2.setStroke(new BasicStroke(1.5f));
-
-        g2.setColor(hoverFlip ? new Color(85, 170, 255, 220) : new Color(40, 115, 220, 180));
-        g2.fillRoundRect(buttonX, buttonY, buttonWidth, buttonHeight, 4, 4);
+        // Draw the Menu button (disabled if game finished)
+        boolean menuEnabled = !gm.gameOver && !gm.stalemate;
+        g2.setColor(menuEnabled ? (hoverMenu ? new Color(76, 146, 220, 220) : new Color(52, 98, 155, 185)) : new Color(60, 60, 60, 160));
+        g2.fillRoundRect(menuButtonX, buttonY, menuButtonWidth, menuButtonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
         g2.setStroke(new BasicStroke(1.5f));
 
         g2.setFont(new Font("Roboto", Font.BOLD, 11));
-        FontMetrics pgnMetrics = g2.getFontMetrics();
-        int pgnTextX = pgnButtonX + (pgnButtonWidth - pgnMetrics.stringWidth("PGN")) / 2;
-        int pgnTextY = buttonY + (buttonHeight + pgnMetrics.getAscent() - pgnMetrics.getDescent()) / 2 - 1;
-        g2.drawString("PGN", pgnTextX, pgnTextY);
-
-        FontMetrics fenMetrics = g2.getFontMetrics();
-        int fenTextX = fenButtonX + (fenButtonWidth - fenMetrics.stringWidth("FEN")) / 2;
-        int fenTextY = buttonY + (buttonHeight + fenMetrics.getAscent() - fenMetrics.getDescent()) / 2 - 1;
-        g2.drawString("FEN", fenTextX, fenTextY);
+        FontMetrics menuMetrics = g2.getFontMetrics();
+        int menuTextX = menuButtonX + (menuButtonWidth - menuMetrics.stringWidth("Menu")) / 2;
+        int menuTextY = buttonY + (menuButtonHeight + menuMetrics.getAscent() - menuMetrics.getDescent()) / 2 - 1;
+        g2.drawString("Menu", menuTextX, menuTextY);
 
         Color navHoverColor = new Color(100, 200, 150, 220);
         Color navBaseColor = new Color(20, 25, 35, 200);
+        Color navDisabled = new Color(60, 60, 60, 120);
 
-        Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(80, 80, 80, 180);
+        Color undoBase = canUndo ? new Color(128, 128, 128, 200) : new Color(60, 60, 60, 140);
         g2.setColor(hoverUndoWhite ? navHoverColor : undoBase);
         g2.fillRoundRect(undoButtonX, undoWhiteRect.y, undoButtonWidth, resignButtonHeight, 4, 4);
         g2.setColor(hoverUndoBlack ? navHoverColor : undoBase);
@@ -256,16 +236,14 @@ public class GamePanelMoveLogRenderer {
             g2.setComposite(oldComposite);
         }
 
-        g2.setColor(hoverResignWhite ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
+        Color resignBase = canResign ? new Color(128, 128, 128, 180) : new Color(60, 60, 60, 140);
+        Color resignHover = canResign ? new Color(220, 80, 80, 220) : new Color(60, 60, 60, 140);
+        g2.setColor(hoverResignWhite ? resignHover : resignBase);
         g2.fillRoundRect(resignButtonX, resignWhiteRect.y, resignButtonWidth, resignButtonHeight, 4, 4);
-        g2.setColor(hoverResignBlack ? new Color(220, 80, 80, 220) : new Color(128, 128, 128, 180));
+        g2.setColor(hoverResignBlack ? resignHover : resignBase);
         g2.fillRoundRect(resignButtonX, resignBlackRect.y, resignButtonWidth, resignButtonHeight, 4, 4);
         g2.setColor(new Color(200, 200, 200));
 
-        if (flipBoardIcon != null) {
-            g2.drawImage(flipBoardIcon, buttonX + (buttonWidth - flipBoardIcon.getWidth()) / 2,
-                    buttonY + (buttonHeight - flipBoardIcon.getHeight()) / 2, null);
-        }
 
         if (resignIcon != null) {
             g2.drawImage(resignIcon, resignButtonX + (resignButtonWidth - resignIcon.getWidth()) / 2,
@@ -285,25 +263,25 @@ public class GamePanelMoveLogRenderer {
 
         int dividerY1 = boxY + 32;
         int dividerY2 = rowStartY + 6;
-        g2.setColor(navStartRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.setColor(canGoStart ? (navStartRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor) : navDisabled);
         g2.fillRect(navButtonX1, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(navPrevRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.setColor(canGoPrev ? (navPrevRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor) : navDisabled);
         g2.fillRect(navButtonX2, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(navNextRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.setColor(canGoNext ? (navNextRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor) : navDisabled);
         g2.fillRect(navButtonX3, navButtonY, navButtonWidth, navButtonHeight);
-        g2.setColor(navEndRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor);
+        g2.setColor(canGoEnd ? (navEndRect.contains(mouse.x, mouse.y) ? navHoverColor : navBaseColor) : navDisabled);
         g2.fillRect(navButtonX4, navButtonY, navButtonWidth, navButtonHeight);
         g2.setColor(new Color(255, 255, 255, 40));
         g2.drawLine(navButtonX2, dividerY1, navButtonX2, dividerY2);
         g2.drawLine(navButtonX3, dividerY1, navButtonX3, dividerY2);
         g2.drawLine(navButtonX4, dividerY1, navButtonX4, dividerY2);
 
-        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "left");
-        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "left");
-        drawNaviTriangle(g2, navButtonX2 + navButtonWidth / 2, navButtonY + navButtonHeight / 2, "left");
-        drawNaviTriangle(g2, navButtonX3 + navButtonWidth / 2, navButtonY + navButtonHeight / 2, "right");
-        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "right");
-        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "right");
+        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "left", canGoStart);
+        drawNaviTriangle(g2, navButtonX1 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "left", canGoStart);
+        drawNaviTriangle(g2, navButtonX2 + navButtonWidth / 2, navButtonY + navButtonHeight / 2, "left", canGoPrev);
+        drawNaviTriangle(g2, navButtonX3 + navButtonWidth / 2, navButtonY + navButtonHeight / 2, "right", canGoNext);
+        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 - 5, navButtonY + navButtonHeight / 2, "right", canGoEnd);
+        drawNaviTriangle(g2, navButtonX4 + navButtonWidth / 2 + 5, navButtonY + navButtonHeight / 2, "right", canGoEnd);
 
         g2.setColor(new Color(255, 255, 255, 15));
         g2.drawLine(boxX + 10, rowStartY + 6, boxX + boxWidth - 10, rowStartY + 6);
@@ -392,7 +370,7 @@ public class GamePanelMoveLogRenderer {
         return timeStr.isEmpty() ? displaySan : displaySan + " " + timeStr;
     }
 
-    private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction) {
+    private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction, boolean enabled) {
         int[] xs;
         int[] ys = {y, y - 5, y + 5};
         if ("left".equals(direction)) {
@@ -401,7 +379,7 @@ public class GamePanelMoveLogRenderer {
             xs = new int[]{x + 5, x - 5, x - 5};
         }
 
-        g2.setColor(new Color(255, 255, 255, 200));
+        g2.setColor(enabled ? new Color(255, 255, 255, 200) : new Color(60, 60, 60, 160));
         g2.fillPolygon(xs, ys, 3);
     }
 }

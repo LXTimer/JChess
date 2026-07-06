@@ -75,13 +75,16 @@ public class GamePanel extends JPanel {
     private boolean rightClickDragging = false;
     private final ArrayList<Point> rightClickHighlights = new ArrayList<>();
     private final ArrayList<Arrow> rightClickArrows = new ArrayList<>();
-    private java.awt.Rectangle flipButtonRect = new java.awt.Rectangle();
+    private java.awt.Rectangle menuButtonRect = new java.awt.Rectangle();
+    private java.awt.Rectangle menuDropdownRect = new java.awt.Rectangle();
+    private java.awt.Rectangle menuFlipRect = new java.awt.Rectangle();
+    private java.awt.Rectangle menuPgnRect = new java.awt.Rectangle();
+    private java.awt.Rectangle menuFenRect = new java.awt.Rectangle();
+    private boolean menuOpen = false;
     private java.awt.Rectangle resignWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle resignBlackRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoWhiteRect = new java.awt.Rectangle();
     private java.awt.Rectangle undoBlackRect = new java.awt.Rectangle();
-    private java.awt.Rectangle fenButtonRect = new java.awt.Rectangle();
-    private java.awt.Rectangle pgnButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle navStartRect  = new java.awt.Rectangle(); // |<  go to start
     private java.awt.Rectangle navPrevRect   = new java.awt.Rectangle(); // <   go back one move
     private java.awt.Rectangle navNextRect   = new java.awt.Rectangle(); // >   go forward one move
@@ -115,8 +118,8 @@ public class GamePanel extends JPanel {
         ResignIcon = loadResignIcon();
         undoIcon = loadUndoIcon();
         moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, flipBoardIcon, ResignIcon, undoIcon,
-            flipButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect, fenButtonRect,
-            pgnButtonRect, navStartRect, navPrevRect, navNextRect, navEndRect);
+            menuButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect,
+            navStartRect, navPrevRect, navNextRect, navEndRect);
         addMouseMotionListener(mouse);
         addMouseListener(mouse);
         addMouseWheelListener(e -> {
@@ -188,7 +191,9 @@ public class GamePanel extends JPanel {
             stockfishEngine.stop();
             stockfishEngine = null;
         }
-        setVisible(false);
+        // Reset the game state so a clean board shows underneath the title panel
+        resetMatch(lastInitialTimeSeconds);
+        setVisible(true);
         if (titlePanel != null) {
             titlePanel.showTitlePanel();
         }
@@ -238,12 +243,19 @@ public class GamePanel extends JPanel {
                         repaint();
                         return;
                     }
-                } else if (mouseJustPressed && pgnButtonRect.contains(mouse.x, mouse.y)) {
-                    showPgnDialog();
-                } else if (mouseJustPressed && fenButtonRect.contains(mouse.x, mouse.y)) {
-                    showFenDialog();
-                } else if (mouseJustPressed && flipButtonRect.contains(mouse.x, mouse.y)) {
+                } else if (mouseJustPressed && menuButtonRect.contains(mouse.x, mouse.y)) {
+                    toggleMenu();
+                } else if (menuOpen && mouseJustPressed && menuFlipRect.contains(mouse.x, mouse.y)) {
+                    closeMenu();
                     gm.toggleFlipBoard();
+                } else if (menuOpen && mouseJustPressed && menuPgnRect.contains(mouse.x, mouse.y)) {
+                    closeMenu();
+                    showPgnDialog();
+                } else if (menuOpen && mouseJustPressed && menuFenRect.contains(mouse.x, mouse.y)) {
+                    closeMenu();
+                    showFenDialog();
+                } else if (menuOpen && mouseJustPressed && !menuDropdownRect.contains(mouse.x, mouse.y)) {
+                    closeMenu();
                 } else if (mouseJustPressed && undoWhiteRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
                     gm.undoLastMove();
                 } else if (mouseJustPressed && undoBlackRect.contains(mouse.x, mouse.y) && gm.canUndo()) {
@@ -284,16 +296,6 @@ public class GamePanel extends JPanel {
     }
 
     private boolean handleEndScreenClick() {
-        if (pgnButtonRect.contains(mouse.x, mouse.y)) {
-            showPgnDialog();
-            return true;
-        }
-
-        if (fenButtonRect.contains(mouse.x, mouse.y)) {
-            showFenDialog();
-            return true;
-        }
-
         if (restartButtonRect.contains(mouse.x, mouse.y)) {
             restartGame();
             return true;
@@ -559,6 +561,9 @@ public class GamePanel extends JPanel {
             moveLogRenderer.drawMoveLog(g2);
         }
 
+        // Draw the in-panel dropdown menu if open
+        drawMenuDropdown(g2);
+
         // Display the game result when the game ends
         drawGameResult(g2);
 
@@ -782,8 +787,19 @@ public class GamePanel extends JPanel {
             resultTitle = (gm.timeOutWinner == com.jchess.game.GameManager.WHITE ? "White" : "Black") + " Wins";
             resultDetail = "by Time";
         } else if (gm.stalemate) {
-            resultTitle = "Stalemate";
-            resultDetail = gm.getMoveValidator().isInsufficientMaterial() ? "by Insufficient Material" : "No legal moves available";
+            if (gm.drawByRepetition) {
+                resultTitle = "Draw";
+                resultDetail = "by Threefold Repetition";
+            } else if (gm.drawByFiftyMove) {
+                resultTitle = "Draw";
+                resultDetail = "by 50-Move Rule";
+            } else if (gm.getMoveValidator().isInsufficientMaterial()) {
+                resultTitle = "Draw";
+                resultDetail = "by Insufficient Material";
+            } else {
+                resultTitle = "Stalemate";
+                resultDetail = "No legal moves available";
+            }
         } else {
             // currentColor is the winner (the side that just delivered checkmate)
             resultTitle = (gm.currentColor == com.jchess.game.GameManager.WHITE) ? "White Wins" : "Black Wins";
@@ -983,7 +999,11 @@ public class GamePanel extends JPanel {
         if (currentTime - lastSecondTimestamp >= 1000) {
             lastSecondTimestamp = currentTime;
 
-            if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
+            // In normal play, decrement the side whose turn it is (gm.currentColor).
+            // When the human is playing BLACK, invert which clock is running.
+            int runningColor = isPlayerWhite ? gm.currentColor : gm.getOppositeColor(gm.currentColor);
+
+            if (runningColor == com.jchess.game.GameManager.WHITE) {
                 whiteTimeRemaining--;
                 if (whiteTimeRemaining <= 0) {
                     whiteTimeRemaining = 0;
@@ -1047,7 +1067,9 @@ public class GamePanel extends JPanel {
 
         // Highlight active player's timer strictly by gm.currentColor
         if (!gm.gameOver && !gm.stalemate) {
-            int activeTimerY = (gm.currentColor == topColor) ? topTimerY : bottomTimerY;
+            int activeColor = isPlayerWhite ? gm.currentColor : gm.getOppositeColor(gm.currentColor);
+            boolean highlightTop = activeColor == topColor;
+            int activeTimerY = highlightTop ? topTimerY : bottomTimerY;
             g2.setColor(new Color(255, 255, 255, 60));
             g2.setStroke(new java.awt.BasicStroke(2));
             g2.drawRoundRect(timerX - 2, activeTimerY - 2, timerWidth + 4, timerHeight + 4, 6, 6);
@@ -1065,8 +1087,7 @@ public class GamePanel extends JPanel {
         boolean hovering = false;
 
         if (isGameFinished()) {
-            hovering = fenButtonRect.contains(mouse.x, mouse.y)
-                || restartButtonRect.contains(mouse.x, mouse.y)
+            hovering = restartButtonRect.contains(mouse.x, mouse.y)
                     || titleButtonRect.contains(mouse.x, mouse.y);
         } else {
             boolean canUndo = gm.canUndo();
@@ -1076,9 +1097,7 @@ public class GamePanel extends JPanel {
             boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
             boolean canGoEnd = gm.getViewMoveIndex() != -1;
 
-            hovering = pgnButtonRect.contains(mouse.x, mouse.y)
-                    || fenButtonRect.contains(mouse.x, mouse.y)
-                    || flipButtonRect.contains(mouse.x, mouse.y)
+            hovering = menuButtonRect.contains(mouse.x, mouse.y)
                     || (canUndo && (undoWhiteRect.contains(mouse.x, mouse.y) || undoBlackRect.contains(mouse.x, mouse.y)))
                     || (canResign && (resignWhiteRect.contains(mouse.x, mouse.y) || resignBlackRect.contains(mouse.x, mouse.y)))
                     || (canGoStart && navStartRect.contains(mouse.x, mouse.y))
@@ -1088,6 +1107,77 @@ public class GamePanel extends JPanel {
         }
 
         setCursor(new java.awt.Cursor(hovering ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
+    }
+
+    /**
+     * Toggles the in-panel dropdown menu open/closed.
+     */
+    private void toggleMenu() {
+        menuOpen = !menuOpen;
+    }
+
+    /**
+     * Closes the dropdown menu.
+     */
+    private void closeMenu() {
+        menuOpen = false;
+    }
+
+    /**
+     * Draws the dropdown menu below the Menu button if it is open.
+     */
+    private void drawMenuDropdown(Graphics2D g2) {
+        if (!menuOpen) return;
+
+        int itemHeight = 36;
+        int dropdownWidth = 150;
+        int dropdownX = menuButtonRect.x + menuButtonRect.width - dropdownWidth;
+        int dropdownY = menuButtonRect.y + menuButtonRect.height + 4;
+
+        // Background of the dropdown
+        g2.setColor(new Color(20, 25, 35, 240));
+        g2.fillRoundRect(dropdownX, dropdownY, dropdownWidth, itemHeight * 3, 6, 6);
+        g2.setColor(new Color(255, 255, 255, 40));
+        g2.setStroke(new BasicStroke(1.2f));
+        g2.drawRoundRect(dropdownX, dropdownY, dropdownWidth, itemHeight * 3, 6, 6);
+
+        // Set the dropdown area rect for click detection
+        menuDropdownRect.setBounds(dropdownX, dropdownY, dropdownWidth, itemHeight * 3);
+
+        // Item 0: Flip Board (with flip icon beside text)
+        int flipItemIconX = dropdownX + 6;
+        int flipItemIconY = dropdownY + (itemHeight - flipBoardIcon.getHeight()) / 2;
+        menuFlipRect.setBounds(dropdownX, dropdownY, dropdownWidth, itemHeight);
+        boolean hoverFlip = menuFlipRect.contains(mouse.x, mouse.y);
+        if (hoverFlip) {
+            g2.setColor(new Color(52, 98, 155, 200));
+            g2.fillRoundRect(dropdownX + 2, dropdownY + 2, dropdownWidth - 4, itemHeight - 2, 4, 4);
+        }
+        g2.setFont(new Font("Roboto", Font.PLAIN, 14));
+        g2.setColor(Color.WHITE);
+        FontMetrics fm = g2.getFontMetrics();
+        g2.drawImage(flipBoardIcon, flipItemIconX, flipItemIconY, null);
+        g2.drawString("Flip Board", flipItemIconX + flipBoardIcon.getWidth() + 6, dropdownY + itemHeight / 2 + fm.getAscent() / 2 - 1);
+
+        // Item 1: Show PGN
+        menuPgnRect.setBounds(dropdownX, dropdownY + itemHeight, dropdownWidth, itemHeight);
+        boolean hoverPgn = menuPgnRect.contains(mouse.x, mouse.y);
+        if (hoverPgn) {
+            g2.setColor(new Color(52, 98, 155, 200));
+            g2.fillRoundRect(dropdownX + 2, dropdownY + itemHeight + 2, dropdownWidth - 4, itemHeight - 2, 4, 4);
+        }
+        g2.setColor(Color.WHITE);
+        g2.drawString("Show PGN", dropdownX + 8, dropdownY + itemHeight + itemHeight / 2 + fm.getAscent() / 2 - 2);
+
+        // Item 2: Show FEN
+        menuFenRect.setBounds(dropdownX, dropdownY + itemHeight * 2, dropdownWidth, itemHeight);
+        boolean hoverFen = menuFenRect.contains(mouse.x, mouse.y);
+        if (hoverFen) {
+            g2.setColor(new Color(52, 98, 155, 200));
+            g2.fillRoundRect(dropdownX + 2, dropdownY + itemHeight * 2 + 2, dropdownWidth - 4, itemHeight - 2, 4, 4);
+        }
+        g2.setColor(Color.WHITE);
+        g2.drawString("Show FEN", dropdownX + 8, dropdownY + itemHeight * 2 + itemHeight / 2 + fm.getAscent() / 2 - 2);
     }
 
     private void showPgnDialog() {

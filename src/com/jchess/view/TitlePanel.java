@@ -5,6 +5,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.InputStream;
 import javax.imageio.ImageIO;
 import com.jchess.view.GamePanel;
 
@@ -38,7 +39,18 @@ public class TitlePanel extends JPanel {
             iconImage = ImageIO.read(getClass().getResource("/com/jchess/resources/icons/JChess.png"));
         } catch (IOException e) {
             System.out.println("Failed to load icon image");
-        }  
+        }
+
+        // Load title background image
+        try (InputStream in = getClass().getResourceAsStream("/com/jchess/resources/title_background.jpg")) {
+            if (in != null) {
+                backgroundImage = ImageIO.read(in);
+            } else {
+                System.out.println("Failed to load title background image");
+            }
+        } catch (IOException e) {
+            System.out.println("Failed to load title background image");
+        }
 
 
         // Create title
@@ -163,8 +175,28 @@ public class TitlePanel extends JPanel {
     @Override
     public void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();
+        
+        // First fill with solid gray background
         g2.setColor(getBackground());
         g2.fillRect(0, 0, getWidth(), getHeight());
+        
+        // Draw background image scaled to fit panel at 50% opacity on top of gray
+        if (backgroundImage != null) {
+            double scale = Math.max(
+                    (double) getWidth() / backgroundImage.getWidth(),
+                    (double) getHeight() / backgroundImage.getHeight());
+            
+            int drawWidth = (int) (backgroundImage.getWidth() * scale);
+            int drawHeight = (int) (backgroundImage.getHeight() * scale);
+            int drawX = (getWidth() - drawWidth) / 2;
+            int drawY = (getHeight() - drawHeight) / 2;
+            
+            Composite oldComposite = g2.getComposite();
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+            g2.drawImage(backgroundImage, drawX, drawY, drawWidth, drawHeight, null);
+            g2.setComposite(oldComposite);
+        }
+        
         if (iconImage != null) {
             g2.drawImage(iconImage, 350, 40, 200, 200, null);
         }
@@ -183,6 +215,18 @@ public class TitlePanel extends JPanel {
         if (fadeTimer != null && fadeTimer.isRunning()) {
             fadeTimer.stop();
         }
+
+        // Ensure background image is restored when returning from an ended match
+        if (backgroundImage == null) {
+            try (InputStream in = getClass().getResourceAsStream("/com/jchess/resources/title_background.jpg")) {
+                if (in != null) {
+                    backgroundImage = ImageIO.read(in);
+                }
+            } catch (IOException e) {
+                System.out.println("Failed to reload title background image");
+            }
+        }
+
         alpha = 1.0f;
         fadingOut = false;
         startButton.setEnabled(true);
@@ -224,11 +268,15 @@ public class TitlePanel extends JPanel {
         if (fadingOut) return;
         fadingOut = true;
         startButton.setEnabled(false);
+        
+        // Remove background image immediately
+        backgroundImage = null;
+        repaint();
 
         fadeTimer = new Timer(16, null); // ~60 FPS
         fadeTimer.addActionListener(new ActionListener() {
             private long startTime = -1;
-            private static final long FADE_DURATION = 1000; 
+            private static final long FADE_DURATION = 500; 
 
             @Override
             public void actionPerformed(ActionEvent e) {

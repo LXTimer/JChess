@@ -9,6 +9,7 @@ import com.jchess.view.animation.PieceAnimation;
 import com.jchess.util.MoveRecord;
 import java.awt.Point;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.awt.event.*;
 
 public class GameManager {
@@ -42,6 +43,11 @@ public class GameManager {
     public boolean blackResign = false;
     public boolean isInsufficientMaterial = false;
     public Integer timeOutWinner = null; // null if not time-out, 0 for White, 1 for Black
+
+    // Draw detection
+    public boolean drawByRepetition = false;
+    public boolean drawByFiftyMove = false;
+    private HashMap<String, Integer> positionHistory = new HashMap<>();
 
     private final Mouse mouse;
     
@@ -129,6 +135,13 @@ public class GameManager {
         resetCapturedPieceCache();
         scrollStartLine = 0;
         moveStartTimeMillis = System.currentTimeMillis();
+        
+        // Reset draw detection
+        drawByRepetition = false;
+        drawByFiftyMove = false;
+        positionHistory.clear();
+        // Record the initial position
+        recordCurrentPosition();
     }
 
     public void copyPieces(ArrayList<Piece> src, ArrayList<Piece> tgt) {
@@ -402,6 +415,91 @@ public class GameManager {
         activeP = null;
     }
 
+    /**
+     * Generates a compact key representing the current board position.
+     * Used for threefold repetition detection.
+     * Includes: piece placement, side to move, castling rights, en passant square.
+     */
+    private String getPositionKey() {
+        StringBuilder sb = new StringBuilder();
+        
+        // Piece placement (ranks 8 to 1)
+        for (int row = 0; row < 8; row++) {
+            int emptyCount = 0;
+            for (int col = 0; col < 8; col++) {
+                Piece piece = getPieceAt(col, row);
+                if (piece != null) {
+                    if (emptyCount > 0) {
+                        sb.append(emptyCount);
+                        emptyCount = 0;
+                    }
+                    char c;
+                    switch (piece.type) {
+                        case KING:   c = 'K'; break;
+                        case QUEEN:  c = 'Q'; break;
+                        case ROOK:   c = 'R'; break;
+                        case BISHOP: c = 'B'; break;
+                        case KNIGHT: c = 'N'; break;
+                        default:     c = 'P'; break;
+                    }
+                    if (piece.color == BLACK) {
+                        c = Character.toLowerCase(c);
+                    }
+                    sb.append(c);
+                } else {
+                    emptyCount++;
+                }
+            }
+            if (emptyCount > 0) {
+                sb.append(emptyCount);
+            }
+            if (row < 7) {
+                sb.append('/');
+            }
+        }
+        
+        // Side to move
+        sb.append(' ').append(currentColor == WHITE ? 'w' : 'b');
+        
+        // Castling rights
+        StringBuilder castling = new StringBuilder();
+        if (hasCastlingRights(WHITE, true))  castling.append('K');
+        if (hasCastlingRights(WHITE, false)) castling.append('Q');
+        if (hasCastlingRights(BLACK, true))  castling.append('k');
+        if (hasCastlingRights(BLACK, false)) castling.append('q');
+        if (castling.length() == 0) castling.append('-');
+        sb.append(' ').append(castling);
+        
+        // En passant target square
+        sb.append(' ').append(getEnPassantSquare());
+        
+        return sb.toString();
+    }
+
+    /**
+     * Records the current position in the position history for repetition detection.
+     */
+    private void recordCurrentPosition() {
+        String key = getPositionKey();
+        positionHistory.put(key, positionHistory.getOrDefault(key, 0) + 1);
+    }
+
+    /**
+     * Checks if the current position has occurred three times (threefold repetition).
+     */
+    private boolean isThreefoldRepetition() {
+        String key = getPositionKey();
+        int count = positionHistory.getOrDefault(key, 0);
+        return count >= 3;
+    }
+
+    /**
+     * Checks if the 50-move rule applies (100 half-moves without pawn move or capture).
+     */
+    private boolean isFiftyMoveRule() {
+        return getHalfmoveClock() >= 100;
+    }
+
     private void finishTurn() {
         int opponent = getOppositeColor(currentColor);
         checkingP = moveValidator.findCheckingPiece(opponent);
@@ -432,6 +530,24 @@ public class GameManager {
             SoundManager.playBeep();
         } else {
             changePlayer();
+            
+            // Record the position after the move is complete and player has switched
+            recordCurrentPosition();
+            
+            // Check for draw conditions
+            if (isThreefoldRepetition()) {
+                drawByRepetition = true;
+                stalemate = true;
+                activeP = null;
+                legalMoveSquares.clear();
+                SoundManager.playBeep();
+            } else if (isFiftyMoveRule()) {
+                drawByFiftyMove = true;
+                stalemate = true;
+                activeP = null;
+                legalMoveSquares.clear();
+                SoundManager.playBeep();
+            }
         }
     }
 

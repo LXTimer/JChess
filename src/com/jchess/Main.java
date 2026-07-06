@@ -12,7 +12,7 @@ public class Main {
 									
 		JFrame frame = new JFrame("JChess");
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.setResizable(false);
+		frame.setResizable(true);
 
 		GamePanel gamePanel = new GamePanel();
 		TitlePanel titlePanel = new TitlePanel(gamePanel);
