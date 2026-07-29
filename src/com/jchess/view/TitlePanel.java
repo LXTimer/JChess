@@ -10,13 +10,17 @@ import javax.imageio.ImageIO;
 import com.jchess.view.GamePanel;
 
 
+import com.jchess.util.EngineDifficulty;
+
 public class TitlePanel extends JPanel {
     private GamePanel gamePanel;
     private JButton startButton;
     private JButton helpButton;
+    private JButton settingsButton;
     private JComboBox<String> timeComboBox;
     private JComboBox<String> colorComboBox;
     private JComboBox<String> modeComboBox;
+    private JComboBox<String> difficultyComboBox;
     public boolean isPlayerWhite = true; // Default to white, can be changed based on selection
 
     // Fade effect fields
@@ -90,7 +94,7 @@ public class TitlePanel extends JPanel {
         add(colorComboBox);
 
         // Mode selector
-        String[] modeOptions = {"Local Multiplayer", "vs Computer (Stockfish)"};
+        String[] modeOptions = {"Local Multiplayer", "vs Computer (Stockfish)", "Analysis Mode"};
         modeComboBox = new JComboBox<>(modeOptions);
         modeComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
         modeComboBox.setBounds(325, 440, 250, 35);
@@ -99,10 +103,29 @@ public class TitlePanel extends JPanel {
         modeComboBox.setForeground(Color.WHITE);
         add(modeComboBox);
 
+        // Difficulty selector
+        String[] difficultyOptions = {"Easy", "Medium", "Hard", "Master"};
+        difficultyComboBox = new JComboBox<>(difficultyOptions);
+        difficultyComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
+        difficultyComboBox.setBounds(325, 480, 250, 35);
+        difficultyComboBox.setSelectedItem("Medium");
+        difficultyComboBox.setBackground(new Color(60, 60, 60));
+        difficultyComboBox.setForeground(Color.WHITE);
+        difficultyComboBox.setEnabled(false); // Enabled only when vs Computer is selected
+        add(difficultyComboBox);
+
+        modeComboBox.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                boolean vsComp = modeComboBox.getSelectedItem().equals("vs Computer (Stockfish)");
+                difficultyComboBox.setEnabled(vsComp);
+            }
+        });
+
         // Create start button
         startButton = new JButton("Start Game");
         startButton.setFont(new Font("Roboto", Font.PLAIN, 24));
-        startButton.setBounds(300, 500, 300, 60);
+        startButton.setBounds(300, 535, 300, 55);
         startButton.setBackground(new Color(100, 150, 200));
         startButton.setForeground(Color.WHITE);
         startButton.setFocusPainted(false);
@@ -119,8 +142,15 @@ public class TitlePanel extends JPanel {
                 } else {
                     isPlayerWhite = selectedColor.equals("White");
                 }
-                boolean vsComputer = modeComboBox.getSelectedItem().equals("vs Computer (Stockfish)");
-                gamePanel.setVsComputer(vsComputer);
+                String selectedMode = (String) modeComboBox.getSelectedItem();
+                boolean vsComputer = "vs Computer (Stockfish)".equals(selectedMode);
+                boolean analysisMode = "Analysis Mode".equals(selectedMode);
+                gamePanel.setAnalysisMode(analysisMode);
+                gamePanel.setVsComputer(vsComputer && !analysisMode);
+                if (vsComputer) {
+                    EngineDifficulty difficulty = EngineDifficulty.fromDisplayName((String) difficultyComboBox.getSelectedItem());
+                    gamePanel.setEngineDifficulty(difficulty);
+                }
                 gamePanel.setPlayerColor(isPlayerWhite);
                 startGame(selectedMinutes * 60);
             }
@@ -170,6 +200,36 @@ public class TitlePanel extends JPanel {
         });
 
         add(helpButton);
+
+        settingsButton = new JButton("Settings");
+        settingsButton.setFont(new Font("Roboto", Font.PLAIN, 18));
+        settingsButton.setBounds(680, 35, 110, 48);
+        settingsButton.setBackground(new Color(56, 60, 68));
+        settingsButton.setForeground(Color.WHITE);
+        settingsButton.setFocusPainted(false);
+        settingsButton.setBorderPainted(false);
+        settingsButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        settingsButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                GameSettingsDialog.show(TitlePanel.this, gamePanel);
+            }
+        });
+
+        settingsButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                settingsButton.setBackground(new Color(74, 80, 90));
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                settingsButton.setBackground(new Color(56, 60, 68));
+            }
+        });
+
+        add(settingsButton);
     }
 
     @Override

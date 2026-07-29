@@ -5,6 +5,8 @@ import javax.sound.sampled.Clip;
 import javax.sound.sampled.FloatControl;
 import java.io.InputStream;
 
+import com.jchess.util.GameSettings;
+
 public class SoundManager {
     public static void playMove() {
         playSound("/com/jchess/resources/sounds/move.wav");
@@ -27,10 +29,16 @@ public class SoundManager {
             }
             Clip clip = AudioSystem.getClip();
             clip.open(AudioSystem.getAudioInputStream(is));
-            
-            // Set volume to a reasonable level
+
+            float volume = GameSettings.getVolume();
+            if (volume <= 0f) {
+                clip.close();
+                return;
+            }
+
             FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-            gainControl.setValue(-10.0f);
+            float gain = (float) (20.0 * Math.log10(volume));
+            gainControl.setValue(Math.max(gainControl.getMinimum(), Math.min(gainControl.getMaximum(), gain)));
             
             clip.start();
         } catch (Exception e) {

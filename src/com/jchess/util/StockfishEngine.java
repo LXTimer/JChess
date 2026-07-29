@@ -22,6 +22,50 @@ public class StockfishEngine {
     private OutputStreamWriter writer;
     private String enginePath;
 
+    public static final class Evaluation {
+        private final Integer centipawns;
+        private final Integer mateInPly;
+
+        private Evaluation(Integer centipawns, Integer mateInPly) {
+            this.centipawns = centipawns;
+            this.mateInPly = mateInPly;
+        }
+
+        public static Evaluation centipawns(int score) {
+            return new Evaluation(score, null);
+        }
+
+        public static Evaluation mate(int mateInPly) {
+            return new Evaluation(null, mateInPly);
+        }
+
+        public boolean isMate() {
+            return mateInPly != null;
+        }
+
+        public int toWhiteCentipawns(boolean whiteToMove) {
+            if (mateInPly != null) {
+                int mateScore = 30000 - Math.min(Math.abs(mateInPly), 1000) * 100;
+                return mateInPly > 0 ? (whiteToMove ? mateScore : -mateScore) : (whiteToMove ? -mateScore : mateScore);
+            }
+            return whiteToMove ? centipawns : -centipawns;
+        }
+
+        public String toDisplayString(boolean whiteToMove) {
+            int whiteScore = toWhiteCentipawns(whiteToMove);
+
+            if (mateInPly != null) {
+                int mateMoves = Math.max(1, (Math.abs(mateInPly) + 1) / 2);
+                String prefix = whiteScore > 0 ? "+M" : whiteScore < 0 ? "-M" : "M";
+                return prefix + mateMoves;
+            }
+
+            double pawns = whiteScore / 100.0;
+            String sign = pawns > 0 ? "+" : "";
+            return String.format(java.util.Locale.US, "%s%.2f", sign, pawns);
+        }
+    }
+
     // Robust UCI reader: engine stdout is read on its own thread and lines are queued.
     private final BlockingQueue<String> stdoutLines = new LinkedBlockingQueue<>();
     private volatile boolean readerThreadRunning = false;
@@ -152,6 +196,18 @@ public class StockfishEngine {
     }
 
     /**
+     * Configures the engine's Skill Level (0 to 20).
+     */
+    public synchronized void setSkillLevel(int level) {
+        int clampedLevel = Math.max(0, Math.min(20, level));
+        try {
+            sendCommand("setoption name Skill Level value " + clampedLevel);
+        } catch (IOException e) {
+            System.err.println("Failed to set Stockfish Skill Level: " + e.getMessage());
+        }
+    }
+
+    /**
      * Finds the best move for the given FEN position.
      *
      * @param fen             The position in FEN format.
@@ -198,6 +254,72 @@ public class StockfishEngine {
             System.err.println("Error communicating with Stockfish: " + e.getMessage());
             return null;
         }
+    }
+
+    public synchronized Evaluation getEvaluation(String fen, int movetimeMillis) {
+        try {
+            sendCommand("isready");
+            if (!waitForToken("readyok", 3000)) {
+                System.err.println("Stockfish did not respond with readyok. Recent output: " + recentLines);
+                return null;
+            }
+
+            stdoutLines.clear();
+
+            sendCommand("position fen " + fen);
+            sendCommand("go movetime " + movetimeMillis);
+
+            Evaluation evaluation = null;
+            long deadline = System.currentTimeMillis() + Math.max(2000, movetimeMillis + 3000);
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    String line = stdoutLines.poll(50, TimeUnit.MILLISECONDS);
+                    if (line == null) {
+                        continue;
+                    }
+                    if (line.startsWith("info ")) {
+                        Evaluation parsed = parseEvaluationLine(line);
+                        if (parsed != null) {
+                            evaluation = parsed;
+                        }
+                    } else if (line.startsWith("bestmove")) {
+                        return evaluation;
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+
+            System.err.println("Timed out waiting for evaluation. Recent output: " + recentLines);
+            return evaluation;
+        } catch (IOException e) {
+            System.err.println("Error communicating with Stockfish: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private Evaluation parseEvaluationLine(String line) {
+        String[] tokens = line.split("\\s+");
+        for (int i = 0; i < tokens.length - 2; i++) {
+            if (!"score".equals(tokens[i])) {
+                continue;
+            }
+
+            String type = tokens[i + 1];
+            String value = tokens[i + 2];
+            try {
+                if ("cp".equals(type)) {
+                    return Evaluation.centipawns(Integer.parseInt(value));
+                }
+                if ("mate".equals(type)) {
+                    return Evaluation.mate(Integer.parseInt(value));
+                }
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**

@@ -8,7 +8,7 @@ public class Rook extends Piece {
     public Rook(int col, int row, int color) {
         super(col, row, color);
         this.type = PieceType.ROOK;
-        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-rook");
+        this.img = loadStyledPieceImage("rook");
     }
     // Check if the rook can move to the target position
     @Override

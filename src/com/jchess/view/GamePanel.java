@@ -38,10 +38,13 @@ public class GamePanel extends JPanel {
     private static final int FPS = 60;
     private static final int TIMER_DELAY = 1000 / FPS;
     private static final int BOARD_PIXEL_SIZE = Board.SIZE * 8;
-    private static final int SIDE_PANEL_X = BOARD_PIXEL_SIZE + 10;
+    private static final int SIDE_PANEL_X = Board.ORIGIN_X + BOARD_PIXEL_SIZE + 10;
     private static final int SIDE_PANEL_Y = 35;
-    private static final int SIDE_PANEL_WIDTH = WIDTH - SIDE_PANEL_X - 12;
+    private static final int SIDE_PANEL_WIDTH = 300;
     private static final int SIDE_PANEL_HEIGHT = 525;
+    private static final int EVAL_BAR_X = Board.ORIGIN_X + BOARD_PIXEL_SIZE + 1;
+    private static final int EVAL_BAR_WIDTH = 8;
+    private static final int EVAL_BAR_HEIGHT = BOARD_PIXEL_SIZE;
     private static final int SIDE_PANEL_CENTER_X = SIDE_PANEL_X + SIDE_PANEL_WIDTH / 2;
     private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 40;
     private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 22;
@@ -56,14 +59,13 @@ public class GamePanel extends JPanel {
     private final Board board;
     private final Mouse mouse;
     private final GameManager gm;
-    private BufferedImage background;
+    private BufferedImage backgroundImage;
     private int whiteTimeRemaining; // in seconds
     private int blackTimeRemaining; // in seconds
     private long lastSecondTimestamp;
     private boolean timerPaused = false;
     private long pauseStartTime = 0;
     private static final int INITIAL_TIME_SECONDS = 6000;
-    private BufferedImage flipBoardIcon;
     private BufferedImage ResignIcon;
     private BufferedImage undoIcon;
     private final GamePanelMoveLogRenderer moveLogRenderer;
@@ -78,6 +80,7 @@ public class GamePanel extends JPanel {
     private java.awt.Rectangle menuButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle menuDropdownRect = new java.awt.Rectangle();
     private java.awt.Rectangle menuFlipRect = new java.awt.Rectangle();
+    private java.awt.Rectangle menuSettingsRect = new java.awt.Rectangle();
     private java.awt.Rectangle menuPgnRect = new java.awt.Rectangle();
     private java.awt.Rectangle menuFenRect = new java.awt.Rectangle();
     private boolean menuOpen = false;
@@ -97,11 +100,32 @@ public class GamePanel extends JPanel {
 
     // Stockfish engine support
     private boolean isVsComputer = false;
+    private boolean isAnalysisMode = false;
     private boolean computerThinking = false;
+    private boolean analysisThinking = false;
     private com.jchess.util.StockfishEngine stockfishEngine;
+    private com.jchess.util.EngineDifficulty engineDifficulty = com.jchess.util.EngineDifficulty.MEDIUM;
+    private volatile String analysisEvaluationText = "--";
+    private volatile int analysisEvaluationWhiteScore = 0;
+    private volatile String lastAnalysisFen = null;
+    private static final int ANALYSIS_SEARCH_TIME_MS = 250;
 
     public void setVsComputer(boolean vsComputer) {
         this.isVsComputer = vsComputer;
+    }
+
+    public void setAnalysisMode(boolean analysisMode) {
+        this.isAnalysisMode = analysisMode;
+    }
+
+    public void setEngineDifficulty(com.jchess.util.EngineDifficulty difficulty) {
+        if (difficulty != null) {
+            this.engineDifficulty = difficulty;
+        }
+    }
+
+    public com.jchess.util.EngineDifficulty getEngineDifficulty() {
+        return engineDifficulty;
     }
 
     // Constructor
@@ -113,11 +137,10 @@ public class GamePanel extends JPanel {
         mouse = new Mouse();
         board = new Board();
         gm = new com.jchess.game.GameManager(mouse);
-        background = loadBackground();
-        flipBoardIcon = loadFlipBoardIcon();
+        backgroundImage = loadBackground();
         ResignIcon = loadResignIcon();
         undoIcon = loadUndoIcon();
-        moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, flipBoardIcon, ResignIcon, undoIcon,
+        moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, ResignIcon, undoIcon,
             menuButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect,
             navStartRect, navPrevRect, navNextRect, navEndRect);
         addMouseMotionListener(mouse);
@@ -208,6 +231,10 @@ public class GamePanel extends JPanel {
             stockfishEngine = null;
         }
         computerThinking = false;
+        analysisThinking = false;
+        analysisEvaluationText = "--";
+        analysisEvaluationWhiteScore = 0;
+        lastAnalysisFen = null;
 
         mouse.pressed = false;
         mouse.rightPressed = false;
@@ -248,6 +275,9 @@ public class GamePanel extends JPanel {
                 } else if (menuOpen && mouseJustPressed && menuFlipRect.contains(mouse.x, mouse.y)) {
                     closeMenu();
                     gm.toggleFlipBoard();
+                } else if (menuOpen && mouseJustPressed && menuSettingsRect.contains(mouse.x, mouse.y)) {
+                    closeMenu();
+                    showSettingsDialog();
                 } else if (menuOpen && mouseJustPressed && menuPgnRect.contains(mouse.x, mouse.y)) {
                     closeMenu();
                     showPgnDialog();
@@ -284,6 +314,7 @@ public class GamePanel extends JPanel {
                 }
 
                 updateRightClickAnnotations();
+                updateAnalysisEvaluation();
                 updateTimer();
                 repaint();
             });
@@ -380,20 +411,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // Helper method for loading the flip board icon
-    private BufferedImage loadFlipBoardIcon() {
-        try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/icons/flip_board.png")) {
-            if (in == null) {
-                System.err.println("Failed to load image: /resources/icons/flip_board.png");
-                return null;
-            }
-            return scaleImage(ImageIO.read(in), 14, 14);
-        } catch (Exception e) {
-            System.err.println("Failed to load image: /resources/icons/flip_board.png");
-            return null;
-        }
-    }
-
     // Helper method for loading the resign icon
     private BufferedImage loadResignIcon() {
         try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/icons/resign.png")) {
@@ -443,7 +460,7 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
         // Draw the game background
-        if (background == null) {
+        if (backgroundImage == null) {
 
             g2.setColor(new Color(20, 21, 24));
             g2.fillRect(0, 0, getWidth(), getHeight());
@@ -457,18 +474,18 @@ public class GamePanel extends JPanel {
                             AlphaComposite.SRC_OVER,
                             BACKGROUND_ALPHA));
 
-            double scale = Math.max(
-                    (double) getWidth() / background.getWidth(),
-                    (double) getHeight() / background.getHeight());
+                double scale = Math.max(
+                    (double) getWidth() / backgroundImage.getWidth(),
+                    (double) getHeight() / backgroundImage.getHeight());
 
-            int drawWidth = (int) (background.getWidth() * scale);
-            int drawHeight = (int) (background.getHeight() * scale);
+                int drawWidth = (int) (backgroundImage.getWidth() * scale);
+                int drawHeight = (int) (backgroundImage.getHeight() * scale);
 
             int drawX = (getWidth() - drawWidth) / 2;
             int drawY = (getHeight() - drawHeight) / 2;
 
-            g2.drawImage(
-                    background,
+                g2.drawImage(
+                    backgroundImage,
                     drawX,
                     drawY,
                     drawWidth,
@@ -499,19 +516,19 @@ public class GamePanel extends JPanel {
             }
 
             g2.setColor(new Color(218, 224, 115, 100)); // Sleek semi-transparent yellow-green
-            g2.fillRect(fromCol * Board.SIZE, fromRow * Board.SIZE, Board.SIZE, Board.SIZE);
-            g2.fillRect(toCol * Board.SIZE, toRow * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.fillRect(Board.ORIGIN_X + fromCol * Board.SIZE, Board.ORIGIN_Y + fromRow * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.fillRect(Board.ORIGIN_X + toCol * Board.SIZE, Board.ORIGIN_Y + toRow * Board.SIZE, Board.SIZE, Board.SIZE);
         }
 
         // Highlight the selected piece's square
         if (gm.activeP != null && !gm.gameOver && !gm.stalemate) {
             g2.setColor(new Color(255, 255, 100, 120)); // Semi-transparent yellow highlight
-            g2.fillRect(gm.activeP.col * Board.SIZE, gm.activeP.row * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.fillRect(Board.ORIGIN_X + gm.activeP.col * Board.SIZE, Board.ORIGIN_Y + gm.activeP.row * Board.SIZE, Board.SIZE, Board.SIZE);
             
             // Draw a border around the selected square
             g2.setColor(new Color(255, 255, 150, 200));
             g2.setStroke(new BasicStroke(2f));
-            g2.drawRect(gm.activeP.col * Board.SIZE, gm.activeP.row * Board.SIZE, Board.SIZE, Board.SIZE);
+            g2.drawRect(Board.ORIGIN_X + gm.activeP.col * Board.SIZE, Board.ORIGIN_Y + gm.activeP.row * Board.SIZE, Board.SIZE, Board.SIZE);
         }
 
         // Draw the side information panel
@@ -519,6 +536,10 @@ public class GamePanel extends JPanel {
         g2.fillRoundRect(SIDE_PANEL_X, SIDE_PANEL_Y, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT, 8, 8);
         g2.setColor(new Color(255, 255, 255, 48));
         g2.drawRoundRect(SIDE_PANEL_X, SIDE_PANEL_Y, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT, 8, 8);
+
+        if (isAnalysisMode) {
+            drawEvaluationBar(g2);
+        }
 
         // Highlight the king when it is in check
         drawCheckedKingGlow(g2);
@@ -581,8 +602,8 @@ public class GamePanel extends JPanel {
     private void drawMoveDot(Graphics2D g2, int col, int row) {
         boolean isCapture = isCaptureSquare(col, row);
 
-        boolean hovered = mouse.x >= col * Board.SIZE && mouse.x < (col + 1) * Board.SIZE
-                       && mouse.y >= row * Board.SIZE && mouse.y < (row + 1) * Board.SIZE;
+        boolean hovered = mouse.x >= Board.ORIGIN_X + col * Board.SIZE && mouse.x < Board.ORIGIN_X + (col + 1) * Board.SIZE
+                   && mouse.y >= Board.ORIGIN_Y + row * Board.SIZE && mouse.y < Board.ORIGIN_Y + (row + 1) * Board.SIZE;
 
         Composite oldComposite = g2.getComposite();
 
@@ -590,8 +611,8 @@ public class GamePanel extends JPanel {
             // Draw a circle tangent to the square (inscribed ring) for capture moves
             int margin = 5;
             int diameter = Board.SIZE - 2 * margin;
-            double x = col * Board.SIZE + margin;
-            double y = row * Board.SIZE + margin;
+            double x = Board.ORIGIN_X + col * Board.SIZE + margin;
+            double y = Board.ORIGIN_Y + row * Board.SIZE + margin;
 
             if (hovered) {
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.50f));
@@ -606,8 +627,8 @@ public class GamePanel extends JPanel {
             }
         } else {
             // Regular move dot for non-capture moves
-            double centerX = col * Board.SIZE + Board.SIZE / 2.0;
-            double centerY = row * Board.SIZE + Board.SIZE / 2.0;
+            double centerX = Board.ORIGIN_X + col * Board.SIZE + Board.SIZE / 2.0;
+            double centerY = Board.ORIGIN_Y + row * Board.SIZE + Board.SIZE / 2.0;
             double outerR = MOVE_DOT_OUTER_SIZE / 2.0;
             double innerR = MOVE_DOT_INNER_SIZE / 2.0;
 
@@ -660,8 +681,8 @@ public class GamePanel extends JPanel {
         if (king == null)
             return;
 
-        double centerX = king.col * Board.SIZE + Board.SIZE / 2.0;
-        double centerY = king.row * Board.SIZE + Board.SIZE / 2.0;
+        double centerX = Board.ORIGIN_X + king.col * Board.SIZE + Board.SIZE / 2.0;
+        double centerY = Board.ORIGIN_Y + king.row * Board.SIZE + Board.SIZE / 2.0;
         Composite oldComposite = g2.getComposite();
 
         // Pulsing animation: oscillate between 0.6 and 1.0 based on time
@@ -719,12 +740,17 @@ public class GamePanel extends JPanel {
             
             g2.setFont(new Font("Roboto", Font.BOLD, 18));
             
+            String opponentName = isVsComputer ? "Stockfish (" + engineDifficulty.getDisplayName() + ")" : null;
+            if (computerThinking && !isPlayerTurn) {
+                opponentName = "Stockfish thinking...";
+            }
+
             if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
                 // White's turn text goes to the side that has White pieces
                 // When board is flipped, White pieces are at the top
                 int turnY = isFlipped ? BLACK_TURN_Y - 10 : WHITE_TURN_Y + 25;
                 int checkY = isFlipped ? BLACK_CHECK_Y - 15 : WHITE_CHECK_Y + 25;
-                String turnText = isPlayerTurn ? "Your turn" : "White's turn";
+                String turnText = isPlayerTurn ? "Your turn" : (opponentName != null ? opponentName : "White's turn");
                 drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
                 if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.BLACK) {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
@@ -736,7 +762,7 @@ public class GamePanel extends JPanel {
                 // When board is not flipped, Black pieces are at the top
                 int turnY = isFlipped ? WHITE_TURN_Y + 25 : BLACK_TURN_Y - 10;
                 int checkY = isFlipped ? WHITE_CHECK_Y + 25 : BLACK_CHECK_Y - 15;
-                String turnText = isPlayerTurn ? "Your turn" : "Black's turn";
+                String turnText = isPlayerTurn ? "Your turn" : (opponentName != null ? opponentName : "Black's turn");
                 drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
                 if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.WHITE) {
                     g2.setFont(new Font("Roboto", Font.BOLD, 20));
@@ -744,7 +770,41 @@ public class GamePanel extends JPanel {
                     drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
                 }
             }
+
+            if (isAnalysisMode) {
+                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
+                g2.setColor(new Color(215, 222, 230));
+                String evalText = analysisThinking ? "Evaluating..." : "" + analysisEvaluationText;
+                g2.drawString(evalText, SIDE_PANEL_X + 16, SIDE_PANEL_Y + 70);
+            }
         }
+    }
+
+    private void drawEvaluationBar(Graphics2D g2) {
+        int barX = EVAL_BAR_X;
+        int barY = Board.ORIGIN_Y;
+        int barWidth = EVAL_BAR_WIDTH;
+        int barHeight = EVAL_BAR_HEIGHT;
+
+        g2.setColor(new Color(14, 16, 20, 210));
+        g2.fillRoundRect(barX, barY, barWidth, barHeight, 6, 6);
+
+        int boundedScore = Math.max(-1000, Math.min(1000, analysisEvaluationWhiteScore));
+        double whiteShare = (boundedScore + 1000.0) / 2000.0;
+        int splitY = barY + (int) Math.round(barHeight * whiteShare);
+
+        g2.setColor(new Color(235, 240, 235, 225));
+        g2.fillRoundRect(barX + 1, barY + 1, barWidth - 2, Math.max(0, splitY - barY - 1), 5, 5);
+
+        g2.setColor(new Color(92, 48, 48, 225));
+        g2.fillRoundRect(barX + 1, splitY, barWidth - 2, Math.max(0, barHeight - (splitY - barY) - 1), 5, 5);
+
+        g2.setColor(new Color(255, 255, 255, 55));
+        g2.setStroke(new BasicStroke(1f));
+        g2.drawRoundRect(barX, barY, barWidth, barHeight, 6, 6);
+
+        g2.setColor(boundedScore >= 0 ? new Color(110, 205, 135, 220) : new Color(225, 95, 95, 220));
+        g2.fillRect(barX + 1, Math.max(barY + 1, splitY - 1), barWidth - 2, 2);
     }
 
     // Display the game result when the game ends
@@ -866,8 +926,8 @@ public class GamePanel extends JPanel {
         boolean rightJustReleased = !mouse.rightPressed && rightPressedLastFrame;
         rightPressedLastFrame = mouse.rightPressed;
 
-        int mouseCol = mouse.x / Board.SIZE;
-        int mouseRow = mouse.y / Board.SIZE;
+        int mouseCol = (mouse.x - Board.ORIGIN_X) / Board.SIZE;
+        int mouseRow = (mouse.y - Board.ORIGIN_Y) / Board.SIZE;
         int logicalCol = gm.isBoardFlipped() ? 7 - mouseCol : mouseCol;
         int logicalRow = gm.isBoardFlipped() ? 7 - mouseRow : mouseRow;
 
@@ -939,8 +999,8 @@ public class GamePanel extends JPanel {
         for (Point p : rightClickHighlights) {
             int drawCol = gm.isBoardFlipped() ? 7 - p.x : p.x;
             int drawRow = gm.isBoardFlipped() ? 7 - p.y : p.y;
-            int x = drawCol * Board.SIZE + margin;
-            int y = drawRow * Board.SIZE + margin;
+            int x = Board.ORIGIN_X + drawCol * Board.SIZE + margin;
+            int y = Board.ORIGIN_Y + drawRow * Board.SIZE + margin;
             g2.draw(new Ellipse2D.Double(x, y, diameter, diameter));
         }
     }
@@ -956,10 +1016,10 @@ public class GamePanel extends JPanel {
             int startRow = gm.isBoardFlipped() ? 7 - arrow.startRow : arrow.startRow;
             int endCol = gm.isBoardFlipped() ? 7 - arrow.endCol : arrow.endCol;
             int endRow = gm.isBoardFlipped() ? 7 - arrow.endRow : arrow.endRow;
-            double startX = startCol * Board.SIZE + Board.SIZE / 2.0;
-            double startY = startRow * Board.SIZE + Board.SIZE / 2.0;
-            double endX = endCol * Board.SIZE + Board.SIZE / 2.0;
-            double endY = endRow * Board.SIZE + Board.SIZE / 2.0;
+            double startX = Board.ORIGIN_X + startCol * Board.SIZE + Board.SIZE / 2.0;
+            double startY = Board.ORIGIN_Y + startRow * Board.SIZE + Board.SIZE / 2.0;
+            double endX = Board.ORIGIN_X + endCol * Board.SIZE + Board.SIZE / 2.0;
+            double endY = Board.ORIGIN_Y + endRow * Board.SIZE + Board.SIZE / 2.0;
 
             double angle = Math.atan2(endY - startY, endX - startX);
             double arrowLength = 45;
@@ -1136,17 +1196,15 @@ public class GamePanel extends JPanel {
 
         // Background of the dropdown
         g2.setColor(new Color(20, 25, 35, 240));
-        g2.fillRoundRect(dropdownX, dropdownY, dropdownWidth, itemHeight * 3, 6, 6);
+        g2.fillRoundRect(dropdownX, dropdownY, dropdownWidth, itemHeight * 4, 6, 6);
         g2.setColor(new Color(255, 255, 255, 40));
         g2.setStroke(new BasicStroke(1.2f));
-        g2.drawRoundRect(dropdownX, dropdownY, dropdownWidth, itemHeight * 3, 6, 6);
+        g2.drawRoundRect(dropdownX, dropdownY, dropdownWidth, itemHeight * 4, 6, 6);
 
         // Set the dropdown area rect for click detection
-        menuDropdownRect.setBounds(dropdownX, dropdownY, dropdownWidth, itemHeight * 3);
+        menuDropdownRect.setBounds(dropdownX, dropdownY, dropdownWidth, itemHeight * 4);
 
-        // Item 0: Flip Board (with flip icon beside text)
-        int flipItemIconX = dropdownX + 6;
-        int flipItemIconY = dropdownY + (itemHeight - flipBoardIcon.getHeight()) / 2;
+        // Item 0: Flip Board
         menuFlipRect.setBounds(dropdownX, dropdownY, dropdownWidth, itemHeight);
         boolean hoverFlip = menuFlipRect.contains(mouse.x, mouse.y);
         if (hoverFlip) {
@@ -1156,28 +1214,46 @@ public class GamePanel extends JPanel {
         g2.setFont(new Font("Roboto", Font.PLAIN, 14));
         g2.setColor(Color.WHITE);
         FontMetrics fm = g2.getFontMetrics();
-        g2.drawImage(flipBoardIcon, flipItemIconX, flipItemIconY, null);
-        g2.drawString("Flip Board", flipItemIconX + flipBoardIcon.getWidth() + 6, dropdownY + itemHeight / 2 + fm.getAscent() / 2 - 1);
+        g2.drawString("Flip Board", dropdownX + 8, dropdownY + itemHeight / 2 + fm.getAscent() / 2 - 1);
 
-        // Item 1: Show PGN
-        menuPgnRect.setBounds(dropdownX, dropdownY + itemHeight, dropdownWidth, itemHeight);
-        boolean hoverPgn = menuPgnRect.contains(mouse.x, mouse.y);
-        if (hoverPgn) {
+        // Item 1: Settings
+        menuSettingsRect.setBounds(dropdownX, dropdownY + itemHeight, dropdownWidth, itemHeight);
+        boolean hoverSettings = menuSettingsRect.contains(mouse.x, mouse.y);
+        if (hoverSettings) {
             g2.setColor(new Color(52, 98, 155, 200));
             g2.fillRoundRect(dropdownX + 2, dropdownY + itemHeight + 2, dropdownWidth - 4, itemHeight - 2, 4, 4);
         }
         g2.setColor(Color.WHITE);
-        g2.drawString("Show PGN", dropdownX + 8, dropdownY + itemHeight + itemHeight / 2 + fm.getAscent() / 2 - 2);
+        g2.drawString("Settings", dropdownX + 8, dropdownY + itemHeight + itemHeight / 2 + fm.getAscent() / 2 - 2);
 
-        // Item 2: Show FEN
-        menuFenRect.setBounds(dropdownX, dropdownY + itemHeight * 2, dropdownWidth, itemHeight);
-        boolean hoverFen = menuFenRect.contains(mouse.x, mouse.y);
-        if (hoverFen) {
+        // Item 2: Show PGN
+        menuPgnRect.setBounds(dropdownX, dropdownY + itemHeight * 2, dropdownWidth, itemHeight);
+        boolean hoverPgn = menuPgnRect.contains(mouse.x, mouse.y);
+        if (hoverPgn) {
             g2.setColor(new Color(52, 98, 155, 200));
             g2.fillRoundRect(dropdownX + 2, dropdownY + itemHeight * 2 + 2, dropdownWidth - 4, itemHeight - 2, 4, 4);
         }
         g2.setColor(Color.WHITE);
-        g2.drawString("Show FEN", dropdownX + 8, dropdownY + itemHeight * 2 + itemHeight / 2 + fm.getAscent() / 2 - 2);
+        g2.drawString("Show PGN", dropdownX + 8, dropdownY + itemHeight * 2 + itemHeight / 2 + fm.getAscent() / 2 - 2);
+
+        // Item 3: Show FEN
+        menuFenRect.setBounds(dropdownX, dropdownY + itemHeight * 3, dropdownWidth, itemHeight);
+        boolean hoverFen = menuFenRect.contains(mouse.x, mouse.y);
+        if (hoverFen) {
+            g2.setColor(new Color(52, 98, 155, 200));
+            g2.fillRoundRect(dropdownX + 2, dropdownY + itemHeight * 3 + 2, dropdownWidth - 4, itemHeight - 2, 4, 4);
+        }
+        g2.setColor(Color.WHITE);
+        g2.drawString("Show FEN", dropdownX + 8, dropdownY + itemHeight * 3 + itemHeight / 2 + fm.getAscent() / 2 - 2);
+    }
+
+    public void applySettings() {
+        gm.refreshPieceImages();
+        repaint();
+    }
+
+    private void showSettingsDialog() {
+        GameSettingsDialog.show(this, this);
     }
 
     private void showPgnDialog() {
@@ -1272,6 +1348,81 @@ public class GamePanel extends JPanel {
         }
     }
 
+    private void updateAnalysisEvaluation() {
+        if (!isAnalysisMode || gm.gameOver || gm.stalemate || gm.promotion || gm.hasAnimations() || analysisThinking) {
+            return;
+        }
+
+        String fen = gm.getFEN();
+        if (fen.equals(lastAnalysisFen)) {
+            return;
+        }
+
+        if (!ensureStockfishEngine(false)) {
+            analysisEvaluationText = "Engine unavailable";
+            analysisEvaluationWhiteScore = 0;
+            lastAnalysisFen = fen;
+            return;
+        }
+
+        analysisThinking = true;
+        final String fenSnapshot = fen;
+        final boolean whiteToMoveSnapshot = gm.currentColor == GameManager.WHITE;
+
+        new Thread(() -> {
+            try {
+                com.jchess.util.StockfishEngine.Evaluation evaluation = stockfishEngine.getEvaluation(fenSnapshot, ANALYSIS_SEARCH_TIME_MS);
+                final String displayText;
+                final int whiteScore;
+
+                if (evaluation == null) {
+                    displayText = "N/A";
+                    whiteScore = 0;
+                } else {
+                    displayText = evaluation.toDisplayString(whiteToMoveSnapshot);
+                    whiteScore = evaluation.toWhiteCentipawns(whiteToMoveSnapshot);
+                }
+
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    if (fenSnapshot.equals(gm.getFEN())) {
+                        analysisEvaluationText = displayText;
+                        analysisEvaluationWhiteScore = whiteScore;
+                        lastAnalysisFen = fenSnapshot;
+                    }
+                    analysisThinking = false;
+                    repaint();
+                });
+            } catch (Exception ex) {
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    analysisEvaluationText = "N/A";
+                    analysisEvaluationWhiteScore = 0;
+                    analysisThinking = false;
+                    repaint();
+                });
+            }
+        }, "analysis-eval").start();
+    }
+
+    private boolean ensureStockfishEngine(boolean promptOnFailure) {
+        if (stockfishEngine != null) {
+            return true;
+        }
+
+        String path = com.jchess.util.StockfishEngine.getSavedPath();
+        stockfishEngine = new com.jchess.util.StockfishEngine(path);
+        if (stockfishEngine.start()) {
+            return true;
+        }
+
+        stockfishEngine = null;
+        if (promptOnFailure) {
+            configureStockfishPath();
+            return stockfishEngine != null;
+        }
+
+        return false;
+    }
+
     // Helper method to draw a list of captured pieces in a row, returns the x-coordinate after the last drawn piece
     private int drawCapturedList(Graphics2D g2, ArrayList<Piece> piecesList, int startX, int startY) {
         int currentX = startX;
@@ -1322,8 +1473,11 @@ public class GamePanel extends JPanel {
                 }
 
                 String fen = gm.getFEN();
-                System.out.println("[Stockfish] Querying bestMove for fen=" + fen);
-                String bestMove = stockfishEngine.getBestMove(fen, 1000);
+                int skillLevel = engineDifficulty.getSkillLevel();
+                int moveTime = engineDifficulty.getMoveTimeMs();
+                stockfishEngine.setSkillLevel(skillLevel);
+                System.out.println("[Stockfish] Querying bestMove for fen=" + fen + " (Difficulty=" + engineDifficulty.getDisplayName() + ", SkillLevel=" + skillLevel + ", movetime=" + moveTime + "ms)");
+                String bestMove = stockfishEngine.getBestMove(fen, moveTime);
                 System.out.println("[Stockfish] bestMove=" + bestMove);
 
                 if (bestMove != null && !bestMove.equals("(none)")) {

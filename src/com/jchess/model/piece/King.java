@@ -8,7 +8,7 @@ public class King extends Piece {
     public King(int col, int row, int color) {
         super(col, row, color);
         this.type = PieceType.KING;
-        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-king");
+        this.img = loadStyledPieceImage("king");
     }
 
     @Override

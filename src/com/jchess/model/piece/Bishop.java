@@ -7,7 +7,7 @@ public class Bishop extends Piece {
     public Bishop(int col, int row, int color) {
         super(col, row, color);
         this.type = PieceType.BISHOP;
-        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-bishop");
+        this.img = loadStyledPieceImage("bishop");
     }
 
     // Check if the bishop can move to the target position

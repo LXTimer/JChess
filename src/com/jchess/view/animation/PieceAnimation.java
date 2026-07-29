@@ -39,8 +39,8 @@ public class PieceAnimation {
      * Gets the interpolated x position based on animation progress.
      */
     public int getAnimatedX() {
-        double startX = startCol * Board.SIZE;
-        double endX = endCol * Board.SIZE;
+        double startX = Board.ORIGIN_X + startCol * Board.SIZE;
+        double endX = Board.ORIGIN_X + endCol * Board.SIZE;
         return (int) (startX + (endX - startX) * easeInOutQuad(progress));
     }
     
@@ -48,8 +48,8 @@ public class PieceAnimation {
      * Gets the interpolated y position based on animation progress.
      */
     public int getAnimatedY() {
-        double startY = startRow * Board.SIZE;
-        double endY = endRow * Board.SIZE;
+        double startY = Board.ORIGIN_Y + startRow * Board.SIZE;
+        double endY = Board.ORIGIN_Y + endRow * Board.SIZE;
         return (int) (startY + (endY - startY) * easeInOutQuad(progress));
     }
     

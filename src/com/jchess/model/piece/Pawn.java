@@ -7,7 +7,7 @@ public class Pawn extends Piece {
     public Pawn(int col, int row, int color) {
         super(col, row, color);
         this.type = PieceType.PAWN;
-        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-pawn");
+        this.img = loadStyledPieceImage("pawn");
     }
     // Check if the pawn can move to the target position
 

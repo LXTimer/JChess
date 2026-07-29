@@ -162,6 +162,27 @@ public class GameHistoryManager {
         viewMoveIndex = -1;
     }
 
+    public void refreshStoredPieceImages() {
+        refreshSnapshotImages(piecesHistory);
+        refreshSnapshotImages(simPiecesHistory);
+        refreshSnapshotImages(capturedPiecesHistory);
+        if (preMoveSnapshot != null) {
+            refreshPieces(preMoveSnapshot);
+        }
+    }
+
+    private void refreshSnapshotImages(ArrayList<ArrayList<Piece>> snapshots) {
+        for (ArrayList<Piece> snapshot : snapshots) {
+            refreshPieces(snapshot);
+        }
+    }
+
+    private void refreshPieces(ArrayList<Piece> pieces) {
+        for (Piece piece : pieces) {
+            piece.refreshImage();
+        }
+    }
+
     public ArrayList<Piece> getDisplayPieces() {
         if (viewMoveIndex == -1) {
             return GameManager.simPieces;

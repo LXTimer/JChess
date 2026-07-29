@@ -18,7 +18,6 @@ import java.awt.image.BufferedImage;
 public class GamePanelMoveLogRenderer {
     private final GameManager gm;
     private final Mouse mouse;
-    private final BufferedImage flipBoardIcon;
     private final BufferedImage resignIcon;
     private final BufferedImage undoIcon;
 
@@ -32,9 +31,9 @@ public class GamePanelMoveLogRenderer {
     private final Rectangle navNextRect;
     private final Rectangle navEndRect;
 
-    private static final int SIDE_PANEL_X = Board.SIZE * 8 + 10;
+    private static final int SIDE_PANEL_X = Board.ORIGIN_X + Board.SIZE * 8 + 10;
     private static final int SIDE_PANEL_Y = 35;
-    private static final int SIDE_PANEL_WIDTH = GamePanel.WIDTH - SIDE_PANEL_X - 12;
+    private static final int SIDE_PANEL_WIDTH = 300;
     private static final int SIDE_PANEL_HEIGHT = 525;
 
     // Unicode chess symbols for piece types
@@ -95,7 +94,6 @@ public class GamePanelMoveLogRenderer {
     public GamePanelMoveLogRenderer(
             GameManager gm,
             Mouse mouse,
-            BufferedImage flipBoardIcon,
             BufferedImage resignIcon,
             BufferedImage undoIcon,
             Rectangle menuButtonRect,
@@ -109,7 +107,6 @@ public class GamePanelMoveLogRenderer {
             Rectangle navEndRect) {
         this.gm = gm;
         this.mouse = mouse;
-        this.flipBoardIcon = flipBoardIcon;
         this.resignIcon = resignIcon;
         this.undoIcon = undoIcon;
         this.menuButtonRect = menuButtonRect;

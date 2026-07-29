@@ -2,6 +2,7 @@ package com.jchess.model;
 
 import com.jchess.game.GameManager;
 import com.jchess.model.piece.*;
+import com.jchess.util.GameSettings;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -44,21 +45,55 @@ public class Piece {
         }
     }
 
+    protected BufferedImage loadStyledPieceImage(String pieceName) {
+        String colorName = color == 0 ? "white" : "black";
+        return getImage("/resources/pieces/" + GameSettings.getPieceStyle().getDirectory() + "/" + colorName + "-" + pieceName);
+    }
+
+    public void refreshImage() {
+        if (type == null) {
+            return;
+        }
+
+        switch (type) {
+            case PAWN:
+                img = loadStyledPieceImage("pawn");
+                break;
+            case KNIGHT:
+                img = loadStyledPieceImage("knight");
+                break;
+            case BISHOP:
+                img = loadStyledPieceImage("bishop");
+                break;
+            case ROOK:
+                img = loadStyledPieceImage("rook");
+                break;
+            case QUEEN:
+                img = loadStyledPieceImage("queen");
+                break;
+            case KING:
+                img = loadStyledPieceImage("king");
+                break;
+            default:
+                break;
+        }
+    }
+
     // Methods to convert between board coordinates and pixel coordinates
     public int getX(int col) {
-        return col * Board.SIZE;
+        return Board.ORIGIN_X + col * Board.SIZE;
     }
 
     public int getY(int row) {
-        return row * Board.SIZE;
+        return Board.ORIGIN_Y + row * Board.SIZE;
     }
 
     public int getCol(int x) {
-        return (x + Board.SIZE / 2) / Board.SIZE;
+        return (x - Board.ORIGIN_X + Board.SIZE / 2) / Board.SIZE;
     }
 
     public int getRow(int y) {
-        return (y + Board.SIZE / 2) / Board.SIZE;
+        return (y - Board.ORIGIN_Y + Board.SIZE / 2) / Board.SIZE;
     }
 
     public void updatePixelPosition() {

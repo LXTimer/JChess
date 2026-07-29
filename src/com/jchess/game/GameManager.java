@@ -85,6 +85,10 @@ public class GameManager {
         return moveValidator;
     }
 
+    public GameHistoryManager getHistoryManager() {
+        return historyManager;
+    }
+
     public void setPieces() {
         pieces.clear();
         moves.clear();
@@ -142,6 +146,20 @@ public class GameManager {
         positionHistory.clear();
         // Record the initial position
         recordCurrentPosition();
+    }
+
+    public void refreshPieceImages() {
+        refreshPieceImages(pieces);
+        refreshPieceImages(simPieces);
+        refreshPieceImages(promoPieces);
+        refreshPieceImages(capturedPieces);
+        historyManager.refreshStoredPieceImages();
+    }
+
+    private void refreshPieceImages(ArrayList<Piece> pieceList) {
+        for (Piece piece : pieceList) {
+            piece.refreshImage();
+        }
     }
 
     public void copyPieces(ArrayList<Piece> src, ArrayList<Piece> tgt) {
@@ -327,7 +345,7 @@ public class GameManager {
     private void promote() {
         if (mouse.pressed) {
             for (Piece p : promoPieces) {
-                if (p.col == mouse.x / Board.SIZE && p.row == mouse.y / Board.SIZE) {
+                if (p.col == (mouse.x - Board.ORIGIN_X) / Board.SIZE && p.row == (mouse.y - Board.ORIGIN_Y) / Board.SIZE) {
                     PieceType promoType = p.type;
                     String suffix = "";
                     switch (promoType) {
@@ -616,11 +634,11 @@ public class GameManager {
     }
 
     private int getMouseColOnBoard() {
-        return mouse.x / Board.SIZE;
+        return (mouse.x - Board.ORIGIN_X) / Board.SIZE;
     }
 
     private int getMouseRowOnBoard() {
-        return mouse.y / Board.SIZE;
+        return (mouse.y - Board.ORIGIN_Y) / Board.SIZE;
     }
 
     public String generateSAN(Piece piece, int targetCol, int targetRow, boolean isCapture, boolean isCastling) {

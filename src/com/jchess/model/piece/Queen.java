@@ -8,7 +8,7 @@ public class Queen extends Piece {
     public Queen(int col, int row, int color) {
         super(col, row, color);
         this.type = PieceType.QUEEN;
-        this.img = getImage("/resources/pieces/" + (color == 0 ? "white" : "black") + "-queen");
+        this.img = loadStyledPieceImage("queen");
     }
     // Check if the queen can move to the target position
 
