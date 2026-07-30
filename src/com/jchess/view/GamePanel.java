@@ -26,11 +26,16 @@ import javax.swing.Timer;
 
 import com.jchess.game.GameManager;
 import com.jchess.input.Mouse;
+import com.jchess.mode.AnalysisModeController;
+import com.jchess.mode.GameMode;
+import com.jchess.mode.GameModeCallbacks;
+import com.jchess.mode.GameModeContext;
+import com.jchess.mode.GameModeController;
 import com.jchess.model.Board;
 import com.jchess.model.Piece;
 import com.jchess.model.piece.PieceType;
 
-public class GamePanel extends JPanel {
+public class GamePanel extends JPanel implements GameModeCallbacks {
 
     // Declare all the variables
     public static final int WIDTH = 900;
@@ -42,9 +47,6 @@ public class GamePanel extends JPanel {
     private static final int SIDE_PANEL_Y = 35;
     private static final int SIDE_PANEL_WIDTH = 300;
     private static final int SIDE_PANEL_HEIGHT = 525;
-    private static final int EVAL_BAR_X = Board.ORIGIN_X + BOARD_PIXEL_SIZE + 1;
-    private static final int EVAL_BAR_WIDTH = 8;
-    private static final int EVAL_BAR_HEIGHT = BOARD_PIXEL_SIZE;
     private static final int SIDE_PANEL_CENTER_X = SIDE_PANEL_X + SIDE_PANEL_WIDTH / 2;
     private static final int BLACK_TURN_Y = SIDE_PANEL_Y + 40;
     private static final int BLACK_CHECK_Y = BLACK_TURN_Y + 22;
@@ -98,34 +100,36 @@ public class GamePanel extends JPanel {
     private TitlePanel titlePanel;
     private int lastInitialTimeSeconds = INITIAL_TIME_SECONDS;
 
-    // Stockfish engine support
-    private boolean isVsComputer = false;
-    private boolean isAnalysisMode = false;
-    private boolean computerThinking = false;
-    private boolean analysisThinking = false;
-    private com.jchess.util.StockfishEngine stockfishEngine;
-    private com.jchess.util.EngineDifficulty engineDifficulty = com.jchess.util.EngineDifficulty.MEDIUM;
-    private volatile String analysisEvaluationText = "--";
-    private volatile int analysisEvaluationWhiteScore = 0;
-    private volatile String lastAnalysisFen = null;
-    private static final int ANALYSIS_SEARCH_TIME_MS = 250;
+    // -----------------------------------------------------------------------
+    // Game mode — replaces the old scattered boolean flags
+    // -----------------------------------------------------------------------
+    private GameMode activeMode = GameMode.LOCAL_MULTIPLAYER;
+    private GameModeController activeModeController;
+    private GameModeContext modeContext;
 
-    public void setVsComputer(boolean vsComputer) {
-        this.isVsComputer = vsComputer;
-    }
-
-    public void setAnalysisMode(boolean analysisMode) {
-        this.isAnalysisMode = analysisMode;
-    }
-
-    public void setEngineDifficulty(com.jchess.util.EngineDifficulty difficulty) {
-        if (difficulty != null) {
-            this.engineDifficulty = difficulty;
+    /**
+     * Sets the active game mode and difficulty before the next game starts.
+     * Creates the matching {@link GameModeController} for the given mode.
+     *
+     * @param mode       the selected game mode
+     * @param difficulty engine difficulty (only relevant for {@link GameMode#VS_COMPUTER})
+     */
+    public void setGameMode(GameMode mode, com.jchess.util.EngineDifficulty difficulty) {
+        this.activeMode = (mode != null) ? mode : GameMode.LOCAL_MULTIPLAYER;
+        // Tear down the old controller if one is running
+        if (activeModeController != null) {
+            activeModeController.onExit();
+        }
+        activeModeController = this.activeMode.createController(
+                difficulty != null ? difficulty : com.jchess.util.EngineDifficulty.MEDIUM);
+        if (modeContext == null && gm != null) {
+            modeContext = new GameModeContext(gm, this);
         }
     }
 
-    public com.jchess.util.EngineDifficulty getEngineDifficulty() {
-        return engineDifficulty;
+    /** Returns the currently active {@link GameMode}. */
+    public GameMode getActiveMode() {
+        return activeMode;
     }
 
     // Constructor
@@ -137,6 +141,8 @@ public class GamePanel extends JPanel {
         mouse = new Mouse();
         board = new Board();
         gm = new com.jchess.game.GameManager(mouse);
+        modeContext = new GameModeContext(gm, this);
+        activeModeController = activeMode.createController(com.jchess.util.EngineDifficulty.MEDIUM);
         backgroundImage = loadBackground();
         ResignIcon = loadResignIcon();
         undoIcon = loadUndoIcon();
@@ -210,9 +216,10 @@ public class GamePanel extends JPanel {
         if (gameTimer != null) {
             gameTimer.stop();
         }
-        if (stockfishEngine != null) {
-            stockfishEngine.stop();
-            stockfishEngine = null;
+        // Tear down the active mode controller (stops any engine threads)
+        if (activeModeController != null) {
+            activeModeController.onExit();
+            activeModeController = null;
         }
         // Reset the game state so a clean board shows underneath the title panel
         resetMatch(lastInitialTimeSeconds);
@@ -226,15 +233,18 @@ public class GamePanel extends JPanel {
     private void resetMatch(int initialTimeSeconds) {
         gm.resetGameState();
 
-        if (stockfishEngine != null) {
-            stockfishEngine.stop();
-            stockfishEngine = null;
+        // Tear down old mode controller (stops engine threads, etc.)
+        if (activeModeController != null) {
+            activeModeController.onExit();
         }
-        computerThinking = false;
-        analysisThinking = false;
-        analysisEvaluationText = "--";
-        analysisEvaluationWhiteScore = 0;
-        lastAnalysisFen = null;
+
+        // If no mode was explicitly set yet, default to local multiplayer
+        if (activeModeController == null) {
+            activeModeController = GameMode.LOCAL_MULTIPLAYER.createController(com.jchess.util.EngineDifficulty.MEDIUM);
+        }
+
+        // Rebuild context so the new controller references the reset state
+        modeContext = new GameModeContext(gm, this);
 
         mouse.pressed = false;
         mouse.rightPressed = false;
@@ -254,6 +264,9 @@ public class GamePanel extends JPanel {
         if (!isPlayerWhite) {
             gm.toggleFlipBoard();
         }
+
+        // Activate the new mode controller
+        activeModeController.onEnter(modeContext);
 
         repaint();
     }
@@ -303,18 +316,25 @@ public class GamePanel extends JPanel {
                 } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
                     gm.resign(1);
                 } else if (gm.getViewMoveIndex() == -1) {
-                    if (isVsComputer && gm.currentColor != gm.getPlayerColor() && !gm.gameOver && !gm.stalemate) {
-                        gm.update(false, false);
-                        if (!computerThinking && !gm.hasAnimations()) {
-                            triggerComputerMove();
-                        }
-                    } else {
+                    // VsComputerMode manages engine turns internally via update().
+                    // Analysis/Local modes use update() only as a position-change detector.
+                    if (activeModeController != null) {
+                        activeModeController.update(modeContext, mouseJustPressed, mouseJustReleased);
+                    }
+                    // Let GameManager handle human input unless it is the engine's turn
+                    boolean isEngineTurn = (activeModeController instanceof com.jchess.mode.VsComputerMode)
+                            && gm.currentColor != gm.getPlayerColor();
+                    if (!isEngineTurn) {
                         gm.update(mouseJustPressed, mouseJustReleased);
+                    }
+                } else {
+                    // History view: still fire analysis controller so the eval bar updates while browsing
+                    if (activeModeController instanceof AnalysisModeController) {
+                        activeModeController.update(modeContext, false, false);
                     }
                 }
 
                 updateRightClickAnnotations();
-                updateAnalysisEvaluation();
                 updateTimer();
                 repaint();
             });
@@ -373,6 +393,14 @@ public class GamePanel extends JPanel {
             case java.awt.event.KeyEvent.VK_F:
                 // Flip board
                 gm.toggleFlipBoard();
+                break;
+
+            case java.awt.event.KeyEvent.VK_SPACE:
+                if (activeModeController instanceof AnalysisModeController) {
+                    ((AnalysisModeController) activeModeController).playBestMove(modeContext);
+                } else {
+                    shouldRepaint = false;
+                }
                 break;
                 
             case java.awt.event.KeyEvent.VK_Z:
@@ -537,8 +565,9 @@ public class GamePanel extends JPanel {
         g2.setColor(new Color(255, 255, 255, 48));
         g2.drawRoundRect(SIDE_PANEL_X, SIDE_PANEL_Y, SIDE_PANEL_WIDTH, SIDE_PANEL_HEIGHT, 8, 8);
 
-        if (isAnalysisMode) {
-            drawEvaluationBar(g2);
+        // Delegate mode-specific overlay rendering (e.g. evaluation bar in Analysis mode)
+        if (activeModeController != null) {
+            activeModeController.renderOverlay(g2, getWidth(), getHeight());
         }
 
         // Highlight the king when it is in check
@@ -567,6 +596,9 @@ public class GamePanel extends JPanel {
         // Draw right-click annotations (highlights & arrows)
         drawRightClickHighlights(g2);
         drawRightClickArrows(g2);
+        if (activeModeController instanceof AnalysisModeController) {
+            drawBestMoveArrow(g2, ((AnalysisModeController) activeModeController).getBestMove());
+        }
 
         // Draw turn information and promotion options
         drawStatus(g2);
@@ -737,75 +769,53 @@ public class GamePanel extends JPanel {
         } else {
             boolean isPlayerTurn = (gm.currentColor == GameManager.WHITE) == isPlayerWhite;
             boolean isFlipped = gm.isBoardFlipped();
-            
+
             g2.setFont(new Font("Roboto", Font.BOLD, 18));
-            
-            String opponentName = isVsComputer ? "Stockfish (" + engineDifficulty.getDisplayName() + ")" : null;
-            if (computerThinking && !isPlayerTurn) {
-                opponentName = "Stockfish thinking...";
-            }
 
-            if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
-                // White's turn text goes to the side that has White pieces
-                // When board is flipped, White pieces are at the top
-                int turnY = isFlipped ? BLACK_TURN_Y - 10 : WHITE_TURN_Y + 25;
-                int checkY = isFlipped ? BLACK_CHECK_Y - 15 : WHITE_CHECK_Y + 25;
-                String turnText = isPlayerTurn ? "Your turn" : (opponentName != null ? opponentName : "White's turn");
-                drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
-                if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.BLACK) {
-                    g2.setFont(new Font("Roboto", Font.BOLD, 20));
-                    g2.setColor(Color.red);
-                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
-                }
-            } else {
-                // Black's turn text goes to the side that has Black pieces
-                // When board is not flipped, Black pieces are at the top
-                int turnY = isFlipped ? WHITE_TURN_Y + 25 : BLACK_TURN_Y - 10;
-                int checkY = isFlipped ? WHITE_CHECK_Y + 25 : BLACK_CHECK_Y - 15;
-                String turnText = isPlayerTurn ? "Your turn" : (opponentName != null ? opponentName : "Black's turn");
-                drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
-                if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.WHITE) {
-                    g2.setFont(new Font("Roboto", Font.BOLD, 20));
-                    g2.setColor(Color.red);
-                    drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
-                }
-            }
+            // Skip turn text in analysis mode — evaluation is shown by AnalysisModeController.renderOverlay()
+            boolean isAnalysisMode = activeModeController != null
+                    && activeModeController.getMode() == GameMode.ANALYSIS;
 
-            if (isAnalysisMode) {
-                g2.setFont(new Font("Roboto", Font.PLAIN, 22));
-                g2.setColor(new Color(215, 222, 230));
-                String evalText = analysisThinking ? "Evaluating..." : "" + analysisEvaluationText;
-                g2.drawString(evalText, SIDE_PANEL_X + 16, SIDE_PANEL_Y + 70);
+            if (!isAnalysisMode) {
+                // Build opponent / engine label from the active mode controller
+                String opponentName = null;
+                if (activeModeController != null && !isPlayerTurn) {
+                    opponentName = activeModeController.getStatusText(modeContext);
+                }
+
+                if (gm.currentColor == com.jchess.game.GameManager.WHITE) {
+                    // White's turn text goes to the side that has White pieces
+                    // When board is flipped, White pieces are at the top
+                    int turnY  = isFlipped ? BLACK_TURN_Y - 10 : WHITE_TURN_Y + 25;
+                    int checkY = isFlipped ? BLACK_CHECK_Y - 15 : WHITE_CHECK_Y + 25;
+                    String turnText = isPlayerTurn ? "Your turn"
+                            : (opponentName != null ? opponentName : "White's turn");
+                    drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
+                    if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.BLACK) {
+                        g2.setFont(new Font("Roboto", Font.BOLD, 20));
+                        g2.setColor(Color.red);
+                        drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
+                    }
+                } else {
+                    // Black's turn text goes to the side that has Black pieces
+                    // When board is not flipped, Black pieces are at the top
+                    int turnY  = isFlipped ? WHITE_TURN_Y + 25 : BLACK_TURN_Y - 10;
+                    int checkY = isFlipped ? WHITE_CHECK_Y + 25 : BLACK_CHECK_Y - 15;
+                    String turnText = isPlayerTurn ? "Your turn"
+                            : (opponentName != null ? opponentName : "Black's turn");
+                    drawCenteredString(g2, turnText, SIDE_PANEL_CENTER_X - 65, turnY);
+                    if (gm.checkingP != null && gm.checkingP.color == com.jchess.game.GameManager.WHITE) {
+                        g2.setFont(new Font("Roboto", Font.BOLD, 20));
+                        g2.setColor(Color.red);
+                        drawCenteredString(g2, "King in check!", SIDE_PANEL_CENTER_X - 60, checkY);
+                    }
+                }
             }
+            // Note: Analysis mode evaluation text is now rendered by AnalysisModeController.renderOverlay()
         }
     }
 
-    private void drawEvaluationBar(Graphics2D g2) {
-        int barX = EVAL_BAR_X;
-        int barY = Board.ORIGIN_Y;
-        int barWidth = EVAL_BAR_WIDTH;
-        int barHeight = EVAL_BAR_HEIGHT;
-
-        g2.setColor(new Color(14, 16, 20, 210));
-        g2.fillRoundRect(barX, barY, barWidth, barHeight, 6, 6);
-
-        int boundedScore = Math.max(-1000, Math.min(1000, analysisEvaluationWhiteScore));
-        double whiteShare = (boundedScore + 1000.0) / 2000.0;
-        int splitY = barY + (int) Math.round(barHeight * whiteShare);
-
-        g2.setColor(new Color(235, 240, 235, 225));
-        g2.fillRoundRect(barX + 1, barY + 1, barWidth - 2, Math.max(0, splitY - barY - 1), 5, 5);
-
-        g2.setColor(new Color(92, 48, 48, 225));
-        g2.fillRoundRect(barX + 1, splitY, barWidth - 2, Math.max(0, barHeight - (splitY - barY) - 1), 5, 5);
-
-        g2.setColor(new Color(255, 255, 255, 55));
-        g2.setStroke(new BasicStroke(1f));
-        g2.drawRoundRect(barX, barY, barWidth, barHeight, 6, 6);
-
-        g2.setColor(boundedScore >= 0 ? new Color(110, 205, 135, 220) : new Color(225, 95, 95, 220));
-        g2.fillRect(barX + 1, Math.max(barY + 1, splitY - 1), barWidth - 2, 2);
-    }
+    // drawEvaluationBar has been moved to AnalysisModeController.renderOverlay()
 
     // Display the game result when the game ends
     private void drawGameResult(Graphics2D g2) {
@@ -1012,36 +1022,54 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         for (Arrow arrow : rightClickArrows) {
-            int startCol = gm.isBoardFlipped() ? 7 - arrow.startCol : arrow.startCol;
-            int startRow = gm.isBoardFlipped() ? 7 - arrow.startRow : arrow.startRow;
-            int endCol = gm.isBoardFlipped() ? 7 - arrow.endCol : arrow.endCol;
-            int endRow = gm.isBoardFlipped() ? 7 - arrow.endRow : arrow.endRow;
-            double startX = Board.ORIGIN_X + startCol * Board.SIZE + Board.SIZE / 2.0;
-            double startY = Board.ORIGIN_Y + startRow * Board.SIZE + Board.SIZE / 2.0;
-            double endX = Board.ORIGIN_X + endCol * Board.SIZE + Board.SIZE / 2.0;
-            double endY = Board.ORIGIN_Y + endRow * Board.SIZE + Board.SIZE / 2.0;
-
-            double angle = Math.atan2(endY - startY, endX - startX);
-            double arrowLength = 45;
-            double arrowAngle = Math.toRadians(30);
-
-            // Shorten line endpoint slightly so arrowhead sits at the tip
-            double lineEndX = endX - arrowLength * 0.5 * Math.cos(angle);
-            double lineEndY = endY - arrowLength * 0.5 * Math.sin(angle);
-
-            // Draw the line
-            g2.draw(new java.awt.geom.Line2D.Double(startX, startY, lineEndX, lineEndY));
-
-            // Draw arrowhead at the actual endpoint
-            double x1 = endX - arrowLength * Math.cos(angle - arrowAngle);
-            double y1 = endY - arrowLength * Math.sin(angle - arrowAngle);
-            double x2 = endX - arrowLength * Math.cos(angle + arrowAngle);
-            double y2 = endY - arrowLength * Math.sin(angle + arrowAngle);
-
-            int[] xPoints = {(int) endX, (int) x1, (int) x2};
-            int[] yPoints = {(int) endY, (int) y1, (int) y2};
-            g2.fillPolygon(xPoints, yPoints, 3);
+            drawArrow(g2, arrow.startCol, arrow.startRow, arrow.endCol, arrow.endRow);
         }
+    }
+
+    private void drawBestMoveArrow(Graphics2D g2, String bestMove) {
+        if (bestMove == null || bestMove.length() < 4) {
+            return;
+        }
+        try {
+            int startCol = bestMove.charAt(0) - 'a';
+            int startRow = 8 - (bestMove.charAt(1) - '0');
+            int endCol = bestMove.charAt(2) - 'a';
+            int endRow = 8 - (bestMove.charAt(3) - '0');
+            if (startCol < 0 || startCol > 7 || startRow < 0 || startRow > 7
+                    || endCol < 0 || endCol > 7 || endRow < 0 || endRow > 7) {
+                return;
+            }
+            g2.setStroke(new BasicStroke(10.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(new Color(230, 190, 70, 220));
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            drawArrow(g2, startCol, startRow, endCol, endRow);
+        } catch (RuntimeException ignored) {
+            // Ignore malformed engine output; the board remains usable.
+        }
+    }
+
+    private void drawArrow(Graphics2D g2, int startCol, int startRow, int endCol, int endRow) {
+        startCol = gm.isBoardFlipped() ? 7 - startCol : startCol;
+        startRow = gm.isBoardFlipped() ? 7 - startRow : startRow;
+        endCol = gm.isBoardFlipped() ? 7 - endCol : endCol;
+        endRow = gm.isBoardFlipped() ? 7 - endRow : endRow;
+        double startX = Board.ORIGIN_X + startCol * Board.SIZE + Board.SIZE / 2.0;
+        double startY = Board.ORIGIN_Y + startRow * Board.SIZE + Board.SIZE / 2.0;
+        double endX = Board.ORIGIN_X + endCol * Board.SIZE + Board.SIZE / 2.0;
+        double endY = Board.ORIGIN_Y + endRow * Board.SIZE + Board.SIZE / 2.0;
+        double angle = Math.atan2(endY - startY, endX - startX);
+        double arrowLength = 45;
+        double arrowAngle = Math.toRadians(30);
+        double lineEndX = endX - arrowLength * 0.5 * Math.cos(angle);
+        double lineEndY = endY - arrowLength * 0.5 * Math.sin(angle);
+        g2.draw(new java.awt.geom.Line2D.Double(startX, startY, lineEndX, lineEndY));
+
+        double x1 = endX - arrowLength * Math.cos(angle - arrowAngle);
+        double y1 = endY - arrowLength * Math.sin(angle - arrowAngle);
+        double x2 = endX - arrowLength * Math.cos(angle + arrowAngle);
+        double y2 = endY - arrowLength * Math.sin(angle + arrowAngle);
+        g2.fillPolygon(new int[] {(int) endX, (int) x1, (int) x2},
+                new int[] {(int) endY, (int) y1, (int) y2}, 3);
     }
 
     private void drawResignRed(int x, int y) {
@@ -1051,6 +1079,10 @@ public class GamePanel extends JPanel {
     }
 
     private void updateTimer() {
+        // Respect the active mode's timer policy (e.g. Analysis mode has no clock)
+        if (activeModeController != null && !activeModeController.isTimerEnabled()) {
+            return;
+        }
         if (gm.gameOver || gm.stalemate || timerPaused) {
             return;
         }
@@ -1115,18 +1147,23 @@ public class GamePanel extends JPanel {
 
         FontMetrics metrics = g2.getFontMetrics();
 
-        String topTime = formatTime(topColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
+        boolean timerEnabled = activeModeController == null || activeModeController.isTimerEnabled();
+        String topTime = timerEnabled
+                ? formatTime(topColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining)
+                : "--:--";
         int topTextX = timerX + (timerWidth - metrics.stringWidth(topTime)) / 2;
         int topTextY = topTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
         g2.drawString(topTime, topTextX, topTextY);
 
-        String bottomTime = formatTime(bottomColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining);
+        String bottomTime = timerEnabled
+                ? formatTime(bottomColor == GameManager.WHITE ? whiteTimeRemaining : blackTimeRemaining)
+                : "--:--";
         int bottomTextX = timerX + (timerWidth - metrics.stringWidth(bottomTime)) / 2;
         int bottomTextY = bottomTimerY + timerHeight / 2 + metrics.getHeight() / 2 - 3;
         g2.drawString(bottomTime, bottomTextX, bottomTextY);
 
         // Highlight active player's timer strictly by gm.currentColor
-        if (!gm.gameOver && !gm.stalemate) {
+        if (timerEnabled && !gm.gameOver && !gm.stalemate) {
             int activeColor = isPlayerWhite ? gm.currentColor : gm.getOppositeColor(gm.currentColor);
             boolean highlightTop = activeColor == topColor;
             int activeTimerY = highlightTop ? topTimerY : bottomTimerY;
@@ -1348,81 +1385,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    private void updateAnalysisEvaluation() {
-        if (!isAnalysisMode || gm.gameOver || gm.stalemate || gm.promotion || gm.hasAnimations() || analysisThinking) {
-            return;
-        }
-
-        String fen = gm.getFEN();
-        if (fen.equals(lastAnalysisFen)) {
-            return;
-        }
-
-        if (!ensureStockfishEngine(false)) {
-            analysisEvaluationText = "Engine unavailable";
-            analysisEvaluationWhiteScore = 0;
-            lastAnalysisFen = fen;
-            return;
-        }
-
-        analysisThinking = true;
-        final String fenSnapshot = fen;
-        final boolean whiteToMoveSnapshot = gm.currentColor == GameManager.WHITE;
-
-        new Thread(() -> {
-            try {
-                com.jchess.util.StockfishEngine.Evaluation evaluation = stockfishEngine.getEvaluation(fenSnapshot, ANALYSIS_SEARCH_TIME_MS);
-                final String displayText;
-                final int whiteScore;
-
-                if (evaluation == null) {
-                    displayText = "N/A";
-                    whiteScore = 0;
-                } else {
-                    displayText = evaluation.toDisplayString(whiteToMoveSnapshot);
-                    whiteScore = evaluation.toWhiteCentipawns(whiteToMoveSnapshot);
-                }
-
-                javax.swing.SwingUtilities.invokeLater(() -> {
-                    if (fenSnapshot.equals(gm.getFEN())) {
-                        analysisEvaluationText = displayText;
-                        analysisEvaluationWhiteScore = whiteScore;
-                        lastAnalysisFen = fenSnapshot;
-                    }
-                    analysisThinking = false;
-                    repaint();
-                });
-            } catch (Exception ex) {
-                javax.swing.SwingUtilities.invokeLater(() -> {
-                    analysisEvaluationText = "N/A";
-                    analysisEvaluationWhiteScore = 0;
-                    analysisThinking = false;
-                    repaint();
-                });
-            }
-        }, "analysis-eval").start();
-    }
-
-    private boolean ensureStockfishEngine(boolean promptOnFailure) {
-        if (stockfishEngine != null) {
-            return true;
-        }
-
-        String path = com.jchess.util.StockfishEngine.getSavedPath();
-        stockfishEngine = new com.jchess.util.StockfishEngine(path);
-        if (stockfishEngine.start()) {
-            return true;
-        }
-
-        stockfishEngine = null;
-        if (promptOnFailure) {
-            configureStockfishPath();
-            return stockfishEngine != null;
-        }
-
-        return false;
-    }
-
     // Helper method to draw a list of captured pieces in a row, returns the x-coordinate after the last drawn piece
     private int drawCapturedList(Graphics2D g2, ArrayList<Piece> piecesList, int startX, int startY) {
         int currentX = startX;
@@ -1444,64 +1406,27 @@ public class GamePanel extends JPanel {
         return prevType == null ? startX : currentX + iconSize;
     }
 
-    private void triggerComputerMove() {
-        // Vs-computer guard: ensure only one engine request runs at a time.
-        if (computerThinking) {
-            return;
-        }
-        if (gm.gameOver || gm.stalemate) {
-            return;
-        }
-
-        System.out.println("[Stockfish] triggerComputerMove called, currentColor=" + gm.currentColor + " playerColor=" + gm.getPlayerColor());
-        computerThinking = true;
-        new Thread(() -> {
-            try {
-                if (stockfishEngine == null) {
-                    String path = com.jchess.util.StockfishEngine.getSavedPath();
-                    System.out.println("[Stockfish] Creating engine with path: " + path);
-                    stockfishEngine = new com.jchess.util.StockfishEngine(path);
-                    if (!stockfishEngine.start()) {
-                        System.err.println("[Stockfish] Engine start() returned false");
-                        javax.swing.SwingUtilities.invokeLater(() -> {
-                            configureStockfishPath();
-                            computerThinking = false;
-                        });
-                        return;
-                    }
-                    System.out.println("[Stockfish] Engine started successfully");
-                }
-
-                String fen = gm.getFEN();
-                int skillLevel = engineDifficulty.getSkillLevel();
-                int moveTime = engineDifficulty.getMoveTimeMs();
-                stockfishEngine.setSkillLevel(skillLevel);
-                System.out.println("[Stockfish] Querying bestMove for fen=" + fen + " (Difficulty=" + engineDifficulty.getDisplayName() + ", SkillLevel=" + skillLevel + ", movetime=" + moveTime + "ms)");
-                String bestMove = stockfishEngine.getBestMove(fen, moveTime);
-                System.out.println("[Stockfish] bestMove=" + bestMove);
-
-                if (bestMove != null && !bestMove.equals("(none)")) {
-                    final String bm = bestMove;
-                    javax.swing.SwingUtilities.invokeLater(() -> {
-                        applyComputerMove(bm);
-                        computerThinking = false;
-                    });
-                } else {
-                    javax.swing.SwingUtilities.invokeLater(() -> {
-                        computerThinking = false;
-                    });
-                }
-            } catch (Exception ex) {
-                System.err.println("[Stockfish] Exception in computer move thread:");
-                ex.printStackTrace();
-                javax.swing.SwingUtilities.invokeLater(() -> {
-                    computerThinking = false;
-                });
-            }
-        }).start();
+    /**
+     * {@inheritDoc}
+     *
+     * Implements {@link GameModeCallbacks#applyEngineMove}.
+     * Applies an engine-generated move to the game board and triggers a repaint.
+     * Called from {@link com.jchess.mode.VsComputerMode} on the Swing EDT.
+     */
+    @Override
+    public void applyEngineMove(int fromCol, int fromRow, int toCol, int toRow, PieceType promoType) {
+        gm.makeValidatedEngineMove(fromCol, fromRow, toCol, toRow, promoType);
+        repaint();
     }
 
-    private void configureStockfishPath() {
+    /**
+     * {@inheritDoc}
+     *
+     * Implements {@link GameModeCallbacks#promptStockfishPath}.
+     * Opens a file chooser so the user can locate the Stockfish binary.
+     */
+    @Override
+    public void promptStockfishPath() {
         javax.swing.JFileChooser fileChooser = new javax.swing.JFileChooser();
         fileChooser.setDialogTitle("Select Stockfish Executable Binary");
         int userSelection = fileChooser.showOpenDialog(this);
@@ -1509,53 +1434,20 @@ public class GamePanel extends JPanel {
             java.io.File fileToOpen = fileChooser.getSelectedFile();
             String path = fileToOpen.getAbsolutePath();
             com.jchess.util.StockfishEngine.savePath(path);
-            
-            stockfishEngine = new com.jchess.util.StockfishEngine(path);
-            if (!stockfishEngine.start()) {
-                JOptionPane.showMessageDialog(this, "Failed to start Stockfish at selected path: " + path, "Error", JOptionPane.ERROR_MESSAGE);
-                stockfishEngine = null;
-            }
+            JOptionPane.showMessageDialog(this,
+                    "Stockfish path saved. The engine will start on the next move.",
+                    "Stockfish Configured", JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
-    private void applyComputerMove(String bestMove) {
-        if (bestMove.length() < 4) return;
-        
-        int fromAbsCol = bestMove.charAt(0) - 'a';
-        int fromAbsRow = 8 - (bestMove.charAt(1) - '0');
-        int toAbsCol = bestMove.charAt(2) - 'a';
-        int toAbsRow = 8 - (bestMove.charAt(3) - '0');
-        
-        PieceType promoType = null;
-        if (bestMove.length() == 5) {
-            char p = bestMove.charAt(4);
-            if (p == 'q') promoType = PieceType.QUEEN;
-            else if (p == 'r') promoType = PieceType.ROOK;
-            else if (p == 'b') promoType = PieceType.BISHOP;
-            else if (p == 'n') promoType = PieceType.KNIGHT;
-        }
-        
-        int fromCol = gm.boardFlipped ? 7 - fromAbsCol : fromAbsCol;
-        int fromRow = gm.boardFlipped ? 7 - fromAbsRow : fromAbsRow;
-        int toCol = gm.boardFlipped ? 7 - toAbsCol : toAbsCol;
-        int toRow = gm.boardFlipped ? 7 - toAbsRow : toAbsRow;
-
-        // Safety: if we can't find a piece at from-square, skip applying.
-        // (Often indicates a FEN/coordinate mismatch.)
-        com.jchess.model.Piece p = null;
-        for (com.jchess.model.Piece piece : gm.pieces) {
-            if (piece.col == fromCol && piece.row == fromRow) {
-                p = piece;
-                break;
-            }
-        }
-        if (p == null) {
-            System.err.println("Stockfish move rejected: no piece at from-square. bestMove=" + bestMove + " fen=" + gm.getFEN());
-            return;
-        }
-
-        gm.makeValidatedEngineMove(fromCol, fromRow, toCol, toRow, promoType);
-
+    /**
+     * {@inheritDoc}
+     *
+     * Implements {@link GameModeCallbacks#requestRepaint}.
+     */
+    @Override
+    public void requestRepaint() {
         repaint();
     }
 }
+

@@ -9,8 +9,15 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -25,18 +32,47 @@ public class StockfishEngine {
     public static final class Evaluation {
         private final Integer centipawns;
         private final Integer mateInPly;
+        private final String principalVariation;
+        private final List<String> principalVariations;
 
-        private Evaluation(Integer centipawns, Integer mateInPly) {
+        private Evaluation(Integer centipawns, Integer mateInPly, String principalVariation) {
             this.centipawns = centipawns;
             this.mateInPly = mateInPly;
+            this.principalVariation = principalVariation;
+            this.principalVariations = principalVariation == null
+                    ? Collections.emptyList()
+                    : Collections.singletonList(principalVariation);
+        }
+
+        private Evaluation(Integer centipawns, Integer mateInPly, List<String> principalVariations) {
+            this.centipawns = centipawns;
+            this.mateInPly = mateInPly;
+            this.principalVariation = principalVariations.isEmpty() ? null : principalVariations.get(0);
+            this.principalVariations = Collections.unmodifiableList(new ArrayList<>(principalVariations));
         }
 
         public static Evaluation centipawns(int score) {
-            return new Evaluation(score, null);
+            return new Evaluation(score, null, (String) null);
+        }
+
+        private static Evaluation centipawns(int score, String principalVariation) {
+            return new Evaluation(score, null, principalVariation);
         }
 
         public static Evaluation mate(int mateInPly) {
-            return new Evaluation(null, mateInPly);
+            return new Evaluation(null, mateInPly, (String) null);
+        }
+
+        private static Evaluation mate(int mateInPly, String principalVariation) {
+            return new Evaluation(null, mateInPly, principalVariation);
+        }
+
+        public String getPrincipalVariation() {
+            return principalVariation;
+        }
+
+        public List<String> getPrincipalVariations() {
+            return principalVariations;
         }
 
         public boolean isMate() {
@@ -207,6 +243,14 @@ public class StockfishEngine {
         }
     }
 
+    public synchronized void setMultiPv(int count) {
+        try {
+            sendCommand("setoption name MultiPV value " + Math.max(1, count));
+        } catch (IOException e) {
+            System.err.println("Failed to set Stockfish MultiPV: " + e.getMessage());
+        }
+    }
+
     /**
      * Finds the best move for the given FEN position.
      *
@@ -215,6 +259,14 @@ public class StockfishEngine {
      * @return The best move in UCI format (e.g. "e2e4"), or null if search failed.
      */
     public synchronized String getBestMove(String fen, int movetimeMillis) {
+        return getBestMoveWithCommand(fen, "movetime " + movetimeMillis);
+    }
+
+    public synchronized String getBestMoveAtDepth(String fen, int depth) {
+        return getBestMoveWithCommand(fen, "depth " + Math.max(1, depth));
+    }
+
+    private String getBestMoveWithCommand(String fen, String goCommand) {
         try {
             // Ensure engine is ready.
             sendCommand("isready");
@@ -226,10 +278,10 @@ public class StockfishEngine {
             stdoutLines.clear();
 
             sendCommand("position fen " + fen);
-            sendCommand("go movetime " + movetimeMillis);
+            sendCommand("go " + goCommand);
 
             // Wait for bestmove line from queued stdout.
-            long deadline = System.currentTimeMillis() + Math.max(2000, movetimeMillis + 3000);
+            long deadline = System.currentTimeMillis() + 10000;
             while (System.currentTimeMillis() < deadline) {
                 try {
                     String line = stdoutLines.poll(50, TimeUnit.MILLISECONDS);
@@ -257,6 +309,54 @@ public class StockfishEngine {
     }
 
     public synchronized Evaluation getEvaluation(String fen, int movetimeMillis) {
+        return getEvaluationWithCommand(fen, "movetime " + movetimeMillis);
+    }
+
+    public synchronized Evaluation getEvaluationAtDepth(String fen, int depth) {
+        return getEvaluationWithCommand(fen, "depth " + Math.max(1, depth));
+    }
+
+    /** Streams each improving evaluation until the requested depth or cancellation. */
+    public synchronized String analyzeAtDepth(String fen, int depth,
+            Consumer<Evaluation> onEvaluation, BooleanSupplier shouldContinue) {
+        try {
+            sendCommand("isready");
+            if (!waitForToken("readyok", 3000)) return null;
+
+            stdoutLines.clear();
+            sendCommand("position fen " + fen);
+            sendCommand("go depth " + Math.max(1, depth));
+
+            Map<Integer, Evaluation> evaluationsByPv = new TreeMap<>();
+            boolean stopSent = false;
+            long deadline = System.currentTimeMillis() + 30000;
+            while (System.currentTimeMillis() < deadline) {
+                if (!stopSent && !shouldContinue.getAsBoolean()) {
+                    sendCommand("stop");
+                    stopSent = true;
+                }
+                String line = stdoutLines.poll(50, TimeUnit.MILLISECONDS);
+                if (line == null) continue;
+                if (line.startsWith("info ")) {
+                    Evaluation parsed = parseEvaluationLine(line);
+                    if (parsed != null) {
+                        evaluationsByPv.put(parseMultiPvIndex(line), parsed);
+                        Evaluation combined = combineEvaluations(parsed, evaluationsByPv);
+                        if (onEvaluation != null) onEvaluation.accept(combined);
+                    }
+                } else if (line.startsWith("bestmove")) {
+                    String[] tokens = line.split("\\s+");
+                    return tokens.length >= 2 ? tokens[1] : null;
+                }
+            }
+            sendCommand("stop");
+        } catch (IOException | InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return null;
+    }
+
+    private Evaluation getEvaluationWithCommand(String fen, String goCommand) {
         try {
             sendCommand("isready");
             if (!waitForToken("readyok", 3000)) {
@@ -267,10 +367,11 @@ public class StockfishEngine {
             stdoutLines.clear();
 
             sendCommand("position fen " + fen);
-            sendCommand("go movetime " + movetimeMillis);
+            sendCommand("go " + goCommand);
 
             Evaluation evaluation = null;
-            long deadline = System.currentTimeMillis() + Math.max(2000, movetimeMillis + 3000);
+            Map<Integer, Evaluation> evaluationsByPv = new TreeMap<>();
+            long deadline = System.currentTimeMillis() + 10000;
             while (System.currentTimeMillis() < deadline) {
                 try {
                     String line = stdoutLines.poll(50, TimeUnit.MILLISECONDS);
@@ -281,9 +382,10 @@ public class StockfishEngine {
                         Evaluation parsed = parseEvaluationLine(line);
                         if (parsed != null) {
                             evaluation = parsed;
+                            evaluationsByPv.put(parseMultiPvIndex(line), parsed);
                         }
                     } else if (line.startsWith("bestmove")) {
-                        return evaluation;
+                        return combineEvaluations(evaluation, evaluationsByPv);
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -292,7 +394,7 @@ public class StockfishEngine {
             }
 
             System.err.println("Timed out waiting for evaluation. Recent output: " + recentLines);
-            return evaluation;
+            return combineEvaluations(evaluation, evaluationsByPv);
         } catch (IOException e) {
             System.err.println("Error communicating with Stockfish: " + e.getMessage());
             return null;
@@ -309,17 +411,60 @@ public class StockfishEngine {
             String type = tokens[i + 1];
             String value = tokens[i + 2];
             try {
+                String principalVariation = parsePrincipalVariation(tokens);
                 if ("cp".equals(type)) {
-                    return Evaluation.centipawns(Integer.parseInt(value));
+                    return Evaluation.centipawns(Integer.parseInt(value), principalVariation);
                 }
                 if ("mate".equals(type)) {
-                    return Evaluation.mate(Integer.parseInt(value));
+                    return Evaluation.mate(Integer.parseInt(value), principalVariation);
                 }
             } catch (NumberFormatException ignored) {
                 return null;
             }
         }
         return null;
+    }
+
+    private String parsePrincipalVariation(String[] tokens) {
+        for (int i = 0; i < tokens.length; i++) {
+            if ("pv".equals(tokens[i]) && i + 1 < tokens.length) {
+                StringBuilder pv = new StringBuilder();
+                for (int j = i + 1; j < tokens.length; j++) {
+                    if (pv.length() > 0) pv.append(' ');
+                    pv.append(tokens[j]);
+                }
+                return pv.toString();
+            }
+        }
+        return null;
+    }
+
+    private int parseMultiPvIndex(String line) {
+        String[] tokens = line.split("\\s+");
+        for (int i = 0; i < tokens.length - 1; i++) {
+            if ("multipv".equals(tokens[i])) {
+                try {
+                    return Integer.parseInt(tokens[i + 1]);
+                } catch (NumberFormatException ignored) {
+                    return 1;
+                }
+            }
+        }
+        return 1;
+    }
+
+    private Evaluation combineEvaluations(Evaluation fallback, Map<Integer, Evaluation> evaluationsByPv) {
+        if (fallback == null || evaluationsByPv.isEmpty()) {
+            return fallback;
+        }
+        Evaluation primary = evaluationsByPv.getOrDefault(1, fallback);
+        List<String> variations = new ArrayList<>();
+        for (Evaluation evaluation : evaluationsByPv.values()) {
+            if (evaluation.getPrincipalVariation() != null) {
+                variations.add(evaluation.getPrincipalVariation());
+            }
+        }
+        return new Evaluation(primary.centipawns, primary.mateInPly, variations);
     }
 
     /**

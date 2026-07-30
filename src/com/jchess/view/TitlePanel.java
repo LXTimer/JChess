@@ -7,9 +7,8 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import javax.imageio.ImageIO;
-import com.jchess.view.GamePanel;
 
-
+import com.jchess.mode.GameMode;
 import com.jchess.util.EngineDifficulty;
 
 public class TitlePanel extends JPanel {
@@ -19,7 +18,7 @@ public class TitlePanel extends JPanel {
     private JButton settingsButton;
     private JComboBox<String> timeComboBox;
     private JComboBox<String> colorComboBox;
-    private JComboBox<String> modeComboBox;
+    private JComboBox<GameMode> modeComboBox;
     private JComboBox<String> difficultyComboBox;
     public boolean isPlayerWhite = true; // Default to white, can be changed based on selection
 
@@ -93,12 +92,11 @@ public class TitlePanel extends JPanel {
         colorComboBox.setForeground(Color.WHITE);
         add(colorComboBox);
 
-        // Mode selector
-        String[] modeOptions = {"Local Multiplayer", "vs Computer (Stockfish)", "Analysis Mode"};
-        modeComboBox = new JComboBox<>(modeOptions);
+        // Mode selector — driven by the GameMode enum so no raw strings are needed
+        modeComboBox = new JComboBox<>(GameMode.values());
         modeComboBox.setFont(new Font("Roboto", Font.PLAIN, 18));
         modeComboBox.setBounds(325, 440, 250, 35);
-        modeComboBox.setSelectedItem("Local Multiplayer");
+        modeComboBox.setSelectedItem(GameMode.LOCAL_MULTIPLAYER);
         modeComboBox.setBackground(new Color(60, 60, 60));
         modeComboBox.setForeground(Color.WHITE);
         add(modeComboBox);
@@ -117,8 +115,14 @@ public class TitlePanel extends JPanel {
         modeComboBox.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                boolean vsComp = modeComboBox.getSelectedItem().equals("vs Computer (Stockfish)");
-                difficultyComboBox.setEnabled(vsComp);
+                GameMode selectedMode = (GameMode) modeComboBox.getSelectedItem();
+                difficultyComboBox.setEnabled(selectedMode == GameMode.VS_COMPUTER);
+                boolean analysisMode = selectedMode == GameMode.ANALYSIS;
+                timeComboBox.setEnabled(!analysisMode);
+                colorComboBox.setEnabled(!analysisMode);
+                if (analysisMode) {
+                    colorComboBox.setSelectedItem("White");
+                }
             }
         });
 
@@ -137,20 +141,18 @@ public class TitlePanel extends JPanel {
             public void actionPerformed(ActionEvent e) {
                 int selectedMinutes = Integer.parseInt((timeComboBox.getSelectedItem()).toString().split(" ")[0]);
                 String selectedColor = (String) colorComboBox.getSelectedItem();
-                if (selectedColor.equals("Random")) {
+                GameMode selectedMode = (GameMode) modeComboBox.getSelectedItem();
+                if (selectedMode == GameMode.ANALYSIS) {
+                    isPlayerWhite = true;
+                } else if (selectedColor.equals("Random")) {
                     isPlayerWhite = Math.random() < 0.5;
                 } else {
                     isPlayerWhite = selectedColor.equals("White");
                 }
-                String selectedMode = (String) modeComboBox.getSelectedItem();
-                boolean vsComputer = "vs Computer (Stockfish)".equals(selectedMode);
-                boolean analysisMode = "Analysis Mode".equals(selectedMode);
-                gamePanel.setAnalysisMode(analysisMode);
-                gamePanel.setVsComputer(vsComputer && !analysisMode);
-                if (vsComputer) {
-                    EngineDifficulty difficulty = EngineDifficulty.fromDisplayName((String) difficultyComboBox.getSelectedItem());
-                    gamePanel.setEngineDifficulty(difficulty);
-                }
+                // GameMode enum replaces the old String-based mode checks
+                EngineDifficulty difficulty = EngineDifficulty.fromDisplayName(
+                        (String) difficultyComboBox.getSelectedItem());
+                gamePanel.setGameMode(selectedMode, difficulty);
                 gamePanel.setPlayerColor(isPlayerWhite);
                 startGame(selectedMinutes * 60);
             }
