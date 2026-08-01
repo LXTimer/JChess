@@ -61,4 +61,9 @@ public final class GameModeContext {
     public String getFEN() {
         return gameManager.getFEN();
     }
+
+    /** @see GameManager#getViewFEN() */
+    public String getViewFEN() {
+        return gameManager.getViewFEN();
+    }
 }

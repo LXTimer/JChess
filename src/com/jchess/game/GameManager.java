@@ -38,6 +38,7 @@ public class GameManager {
     public boolean promotion;
     public boolean gameOver;
     public boolean stalemate;
+    public boolean suppressGameOver = false; // When true, game never ends (analysis mode)
     public boolean boardFlipped = false;
     public boolean whiteResign = false;
     public boolean blackResign = false;
@@ -537,15 +538,27 @@ public class GameManager {
         scrollToBottom();
 
         if ((checkingP != null && !opponentHasLegalMove) || whiteResign || blackResign) {
-            gameOver = true;
-            activeP = null;
-            legalMoveSquares.clear();
-            SoundManager.playBeep();
+            if (!suppressGameOver) {
+                gameOver = true;
+                activeP = null;
+                legalMoveSquares.clear();
+                SoundManager.playBeep();
+            } else {
+                // In analysis mode, continue playing even after checkmate
+                changePlayer();
+                recordCurrentPosition();
+            }
         } else if (checkingP == null && !opponentHasLegalMove) {
-            stalemate = true;
-            activeP = null;
-            legalMoveSquares.clear();
-            SoundManager.playBeep();
+            if (!suppressGameOver) {
+                stalemate = true;
+                activeP = null;
+                legalMoveSquares.clear();
+                SoundManager.playBeep();
+            } else {
+                // In analysis mode, continue playing even after stalemate
+                changePlayer();
+                recordCurrentPosition();
+            }
         } else {
             changePlayer();
             
@@ -555,21 +568,28 @@ public class GameManager {
             // Check for draw conditions
             if (isThreefoldRepetition()) {
                 drawByRepetition = true;
-                stalemate = true;
-                activeP = null;
-                legalMoveSquares.clear();
-                SoundManager.playBeep();
+                if (!suppressGameOver) {
+                    stalemate = true;
+                    activeP = null;
+                    legalMoveSquares.clear();
+                    SoundManager.playBeep();
+                }
             } else if (isFiftyMoveRule()) {
                 drawByFiftyMove = true;
-                stalemate = true;
-                activeP = null;
-                legalMoveSquares.clear();
-                SoundManager.playBeep();
+                if (!suppressGameOver) {
+                    stalemate = true;
+                    activeP = null;
+                    legalMoveSquares.clear();
+                    SoundManager.playBeep();
+                }
             }
         }
     }
 
     public void resign(int color) {
+        if (suppressGameOver) {
+            return; // No resigning in analysis mode
+        }
         if (color == 0) {
             whiteResign = true;
         } else {
@@ -581,6 +601,9 @@ public class GameManager {
     }
 
     public void timeOutWin(int winnerColor) {
+        if (suppressGameOver) {
+            return; // No time-out in analysis mode
+        }
         gameOver = true;
         activeP = null;
         legalMoveSquares.clear();
@@ -1060,6 +1083,28 @@ public class GameManager {
 
     // Stockfish expects standard FEN metadata so it can evaluate en passant and move counters correctly.
     private static final boolean STOCKFISH_STABLE_FEN = false;
+
+    /**
+     * Returns a FEN string for the currently viewed position (historical or live).
+     * When the user has navigated through move history, this returns the FEN
+     * of the displayed board state rather than the live position.
+     */
+    public String getViewFEN() {
+        ArrayList<Piece> savedPieces = pieces;
+        int savedCurrentColor = currentColor;
+        pieces = new ArrayList<>(getDisplayPieces());
+        // For historical positions, derive the side-to-move from the move index
+        // so the FEN's active-color field is correct. viewMoveIndex == -1 means
+        // the live position, which already has the correct currentColor.
+        int viewMoveIndex = getViewMoveIndex();
+        if (viewMoveIndex != -1) {
+            currentColor = (viewMoveIndex % 2 == 0) ? WHITE : BLACK;
+        }
+        String fen = getFEN();
+        pieces = savedPieces;
+        currentColor = savedCurrentColor;
+        return fen;
+    }
 
     public String getFEN() {
         StringBuilder fen = new StringBuilder();

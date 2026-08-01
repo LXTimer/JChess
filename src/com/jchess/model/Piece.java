@@ -30,15 +30,25 @@ public class Piece {
         updatePixelPosition();
     }
 
+    private static final java.util.Map<String, BufferedImage> imageCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     // Method to load piece images
     public BufferedImage getImage(String path) {
+        String resolvedPath = path;
+        if (path.startsWith("/resources/")) {
+            resolvedPath = "/com/jchess" + path;
+        }
+        BufferedImage cached = imageCache.get(resolvedPath);
+        if (cached != null) {
+            return cached;
+        }
         try {
-            String resolvedPath = path;
-            if (path.startsWith("/resources/")) {
-                resolvedPath = "/com/jchess" + path;
-            }
-            return ImageIO.read(
+            BufferedImage loaded = ImageIO.read(
                     Objects.requireNonNull(Piece.class.getResourceAsStream(resolvedPath + ".png")));
+            if (loaded != null) {
+                imageCache.put(resolvedPath, loaded);
+            }
+            return loaded;
         } catch (Exception e) {
             System.err.println("Failed to load image: " + path);
             return null;

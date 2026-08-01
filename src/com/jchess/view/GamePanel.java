@@ -57,11 +57,17 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
     private static final int MOVE_DOT_INNER_SIZE = 15;
     private static final float BACKGROUND_ALPHA = 0.70f;
 
+    private static final java.awt.Cursor HAND_CURSOR = new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR);
+    private static final java.awt.Cursor DEFAULT_CURSOR = new java.awt.Cursor(java.awt.Cursor.DEFAULT_CURSOR);
+
     private Timer gameTimer;
     private final Board board;
     private final Mouse mouse;
     private final GameManager gm;
     private BufferedImage backgroundImage;
+    private BufferedImage scaledBackgroundImage;
+    private int cachedBgWidth = -1;
+    private int cachedBgHeight = -1;
     private int whiteTimeRemaining; // in seconds
     private int blackTimeRemaining; // in seconds
     private long lastSecondTimestamp;
@@ -70,6 +76,7 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
     private static final int INITIAL_TIME_SECONDS = 6000;
     private BufferedImage ResignIcon;
     private BufferedImage undoIcon;
+    private BufferedImage homeIcon;
     private final GamePanelMoveLogRenderer moveLogRenderer;
     private boolean mousePressedLastFrame = false;
     private boolean rightPressedLastFrame = false;
@@ -96,6 +103,7 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
     private java.awt.Rectangle navEndRect    = new java.awt.Rectangle(); // >|  go to end (live)
     private java.awt.Rectangle restartButtonRect = new java.awt.Rectangle();
     private java.awt.Rectangle titleButtonRect = new java.awt.Rectangle();
+    private java.awt.Rectangle homeButtonRect = new java.awt.Rectangle();
     private boolean isPlayerWhite = true;
     private TitlePanel titlePanel;
     private int lastInitialTimeSeconds = INITIAL_TIME_SECONDS;
@@ -116,6 +124,8 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
      */
     public void setGameMode(GameMode mode, com.jchess.util.EngineDifficulty difficulty) {
         this.activeMode = (mode != null) ? mode : GameMode.LOCAL_MULTIPLAYER;
+        // In analysis mode, the game should never end
+        gm.suppressGameOver = (this.activeMode == GameMode.ANALYSIS);
         // Tear down the old controller if one is running
         if (activeModeController != null) {
             activeModeController.onExit();
@@ -146,6 +156,7 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
         backgroundImage = loadBackground();
         ResignIcon = loadResignIcon();
         undoIcon = loadUndoIcon();
+        homeIcon = loadHomeIcon();
         moveLogRenderer = new GamePanelMoveLogRenderer(gm, mouse, ResignIcon, undoIcon,
             menuButtonRect, resignWhiteRect, resignBlackRect, undoWhiteRect, undoBlackRect,
             navStartRect, navPrevRect, navNextRect, navEndRect);
@@ -233,6 +244,9 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
     private void resetMatch(int initialTimeSeconds) {
         gm.resetGameState();
 
+        // In analysis mode, the game should never end
+        gm.suppressGameOver = (activeMode == GameMode.ANALYSIS);
+
         // Tear down old mode controller (stops engine threads, etc.)
         if (activeModeController != null) {
             activeModeController.onExit();
@@ -285,6 +299,8 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     }
                 } else if (mouseJustPressed && menuButtonRect.contains(mouse.x, mouse.y)) {
                     toggleMenu();
+                } else if (mouseJustPressed && homeButtonRect.contains(mouse.x, mouse.y)) {
+                    returnToTitle();
                 } else if (menuOpen && mouseJustPressed && menuFlipRect.contains(mouse.x, mouse.y)) {
                     closeMenu();
                     gm.toggleFlipBoard();
@@ -311,9 +327,9 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     gm.viewNext();
                 } else if (mouseJustPressed && navEndRect.contains(mouse.x, mouse.y)) {
                     gm.viewEnd();
-                } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver && !gm.suppressGameOver) {
                     gm.resign(0);
-                } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver) {
+                } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver && !gm.suppressGameOver) {
                     gm.resign(1);
                 } else if (gm.getViewMoveIndex() == -1) {
                     // VsComputerMode manages engine turns internally via update().
@@ -338,7 +354,7 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                 updateTimer();
                 repaint();
             });
-            gameTimer.setCoalesce(false);
+            gameTimer.setCoalesce(true);
         }
 
         if (!gameTimer.isRunning()) {
@@ -467,6 +483,20 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
         }
     }
 
+    // Helper method for loading the home icon
+    private BufferedImage loadHomeIcon() {
+        try (InputStream in = GamePanel.class.getResourceAsStream("/com/jchess/resources/icons/home.png")) {
+            if (in == null) {
+                System.err.println("Failed to load image: /resources/icons/home.png");
+                return null;
+            }
+            return scaleImage(ImageIO.read(in), 30, 30);
+        } catch (Exception e) {
+            System.err.println("Failed to load image: /resources/icons/home.png");
+            return null;
+        }
+    }
+
     // Helper method for scaling images
     private BufferedImage scaleImage(BufferedImage src, int width, int height) {
         BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
@@ -494,32 +524,28 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
             g2.fillRect(0, 0, getWidth(), getHeight());
 
         } else {
-
-            Composite oldComposite = g2.getComposite();
-
-            g2.setComposite(
-                    AlphaComposite.getInstance(
-                            AlphaComposite.SRC_OVER,
-                            BACKGROUND_ALPHA));
-
+            int pw = getWidth();
+            int ph = getHeight();
+            if (scaledBackgroundImage == null || pw != cachedBgWidth || ph != cachedBgHeight) {
+                cachedBgWidth = pw;
+                cachedBgHeight = ph;
+                scaledBackgroundImage = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D gBg = scaledBackgroundImage.createGraphics();
+                gBg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                 double scale = Math.max(
-                    (double) getWidth() / backgroundImage.getWidth(),
-                    (double) getHeight() / backgroundImage.getHeight());
-
+                    (double) pw / backgroundImage.getWidth(),
+                    (double) ph / backgroundImage.getHeight());
                 int drawWidth = (int) (backgroundImage.getWidth() * scale);
                 int drawHeight = (int) (backgroundImage.getHeight() * scale);
+                int drawX = (pw - drawWidth) / 2;
+                int drawY = (ph - drawHeight) / 2;
+                gBg.drawImage(backgroundImage, drawX, drawY, drawWidth, drawHeight, null);
+                gBg.dispose();
+            }
 
-            int drawX = (getWidth() - drawWidth) / 2;
-            int drawY = (getHeight() - drawHeight) / 2;
-
-                g2.drawImage(
-                    backgroundImage,
-                    drawX,
-                    drawY,
-                    drawWidth,
-                    drawHeight,
-                    null);
-
+            Composite oldComposite = g2.getComposite();
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, BACKGROUND_ALPHA));
+            g2.drawImage(scaledBackgroundImage, 0, 0, null);
             g2.setComposite(oldComposite);
         }
 
@@ -616,6 +642,11 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
 
         // Draw the in-panel dropdown menu if open
         drawMenuDropdown(g2);
+
+        // Draw the home button (top-right corner) when game is not finished
+        if (!isGameFinished()) {
+            drawHomeButton(g2);
+        }
 
         // Display the game result when the game ends
         drawGameResult(g2);
@@ -1120,7 +1151,7 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
     private void drawTimer(Graphics2D g2){
         int timerWidth = 120;
         int timerHeight = 40;
-        int timerX = SIDE_PANEL_CENTER_X;
+        int timerX = SIDE_PANEL_CENTER_X + 12;
         int timerBlackY = SIDE_PANEL_Y + 15;
         int timerWhiteY = SIDE_PANEL_Y + SIDE_PANEL_HEIGHT - timerHeight - 15;
 
@@ -1188,13 +1219,14 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     || titleButtonRect.contains(mouse.x, mouse.y);
         } else {
             boolean canUndo = gm.canUndo();
-            boolean canResign = !gm.gameOver && !gm.stalemate;
+            boolean canResign = !gm.gameOver && !gm.stalemate && !gm.suppressGameOver;
             boolean canGoStart = !gm.moves.isEmpty() && gm.getViewMoveIndex() != 0;
             boolean canGoPrev = !gm.moves.isEmpty() && (gm.getViewMoveIndex() > 0 || gm.getViewMoveIndex() == -1);
             boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
             boolean canGoEnd = gm.getViewMoveIndex() != -1;
 
             hovering = menuButtonRect.contains(mouse.x, mouse.y)
+                    || homeButtonRect.contains(mouse.x, mouse.y)
                     || (canUndo && (undoWhiteRect.contains(mouse.x, mouse.y) || undoBlackRect.contains(mouse.x, mouse.y)))
                     || (canResign && (resignWhiteRect.contains(mouse.x, mouse.y) || resignBlackRect.contains(mouse.x, mouse.y)))
                     || (canGoStart && navStartRect.contains(mouse.x, mouse.y))
@@ -1203,7 +1235,10 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     || (canGoEnd && navEndRect.contains(mouse.x, mouse.y));
         }
 
-        setCursor(new java.awt.Cursor(hovering ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
+        java.awt.Cursor targetCursor = hovering ? HAND_CURSOR : DEFAULT_CURSOR;
+        if (getCursor() != targetCursor) {
+            setCursor(targetCursor);
+        }
     }
 
     /**
@@ -1282,6 +1317,39 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
         }
         g2.setColor(Color.WHITE);
         g2.drawString("Show FEN", dropdownX + 8, dropdownY + itemHeight * 3 + itemHeight / 2 + fm.getAscent() / 2 - 2);
+    }
+
+    /**
+     * Draws the home button in the top-right corner of the window.
+     * The button allows the user to return to the title page.
+     */
+    private void drawHomeButton(Graphics2D g2) {
+        int buttonSize = 20;
+        int margin = 10;
+        int buttonX = getWidth() - buttonSize - margin - 5;
+        int buttonY = margin;
+
+        homeButtonRect.setBounds(buttonX, buttonY, buttonSize, buttonSize);
+
+        boolean hovered = homeButtonRect.contains(mouse.x, mouse.y);
+
+        // Draw subtle background circle with hover effect
+        Composite oldComposite = g2.getComposite();
+        if (hovered) {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+            g2.setColor(new Color(52, 98, 155));
+            g2.fillRoundRect(buttonX - 4, buttonY - 4, buttonSize + 8, buttonSize + 8, 8, 8);
+        } else {
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.25f));
+            g2.setColor(new Color(40, 45, 55));
+            g2.fillRoundRect(buttonX - 4, buttonY - 4, buttonSize + 8, buttonSize + 8, 8, 8);
+        }
+        g2.setComposite(oldComposite);
+
+        // Draw the home icon
+        if (homeIcon != null) {
+            g2.drawImage(homeIcon, buttonX, buttonY, buttonSize, buttonSize, null);
+        }
     }
 
     public void applySettings() {

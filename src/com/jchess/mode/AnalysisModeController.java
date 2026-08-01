@@ -13,6 +13,7 @@ import java.util.List;
 
 import com.jchess.game.GameManager;
 import com.jchess.model.Board;
+import com.jchess.util.MoveRecord;
 import com.jchess.util.StockfishEngine;
 
 
@@ -26,7 +27,7 @@ public class AnalysisModeController implements GameModeController {
     private static final int EVAL_BAR_HEIGHT = Board.SIZE * 8;
     private static final int SIDE_PANEL_X    = Board.ORIGIN_X + Board.SIZE * 8 + 10;
     private static final int SIDE_PANEL_Y    = 35;
-    private static final int ANALYSIS_SEARCH_DEPTH = 21;
+    private static final int ANALYSIS_SEARCH_DEPTH = 30;
 
     // -----------------------------------------------------------------------
     // State
@@ -84,13 +85,15 @@ public class AnalysisModeController implements GameModeController {
         }
         GameManager gm = context.getGameManager();
 
-        // Don't start a new eval while one is running, or in terminal / transient states
-        if (analysisThinking || gm.gameOver || gm.stalemate || gm.promotion
+        // Don't start a new eval while one is running, or in transient states.
+        // Note: gameOver/stalemate reflect the LIVE game, not the viewed position,
+        // so we must NOT block analysis of historical positions before a terminal state.
+        if (analysisThinking || gm.promotion
                 || gm.activeP != null || gm.hasAnimations()) {
             return;
         }
 
-        String currentFen = context.getFEN();
+        String currentFen = gm.getViewFEN();
         if (!currentFen.equals(lastAnalysedFen)) {
             bestMove = null;
             principalVariation = null;
@@ -111,8 +114,16 @@ public class AnalysisModeController implements GameModeController {
         }
 
         analysisThinking = true;
-        final String fenSnapshot         = currentFen;
-        final boolean whiteToMoveSnapshot = gm.currentColor == GameManager.WHITE;
+        final String fenSnapshot = currentFen;
+        // Derive the side-to-move from the viewed position, not the live game,
+        // so score conversion is correct when browsing history.
+        final boolean whiteToMoveSnapshot;
+        int viewMoveIndex = gm.getViewMoveIndex();
+        if (viewMoveIndex == -1) {
+            whiteToMoveSnapshot = gm.currentColor == GameManager.WHITE;
+        } else {
+            whiteToMoveSnapshot = (viewMoveIndex % 2 == 0);
+        }
 
         new Thread(() -> {
             try {
@@ -120,7 +131,7 @@ public class AnalysisModeController implements GameModeController {
                         fenSnapshot,
                         ANALYSIS_SEARCH_DEPTH,
                         eval -> javax.swing.SwingUtilities.invokeLater(() -> {
-                            if (!fenSnapshot.equals(context.getFEN())) return;
+                            if (!fenSnapshot.equals(context.getViewFEN())) return;
                             evaluationText = eval.toDisplayString(whiteToMoveSnapshot);
                             whiteScoreCp = eval.toWhiteCentipawns(whiteToMoveSnapshot);
                             principalVariation = eval.getPrincipalVariation();
@@ -128,13 +139,18 @@ public class AnalysisModeController implements GameModeController {
                             if (principalVariation != null && !principalVariation.isEmpty()) {
                                 bestMove = principalVariation.split("\\s+", 2)[0];
                             }
+                            // Backfill move-quality metadata for the position we just evaluated.
+                            // The position has {@code viewMoveIndex} half-moves played:
+                            //   - If viewMoveIndex > 0 → this is the "after" state of move N-1
+                            //   - If viewMoveIndex < totalMoves → this is the "before" state of move N
+                            backfillMoveQuality(context.getGameManager(), viewMoveIndex, whiteScoreCp);
                             context.getCallbacks().requestRepaint();
                         }),
-                        () -> fenSnapshot.equals(context.getFEN())
+                        () -> fenSnapshot.equals(context.getViewFEN())
                                 || context.getGameManager().activeP != null);
 
                 javax.swing.SwingUtilities.invokeLater(() -> {
-                    if (fenSnapshot.equals(context.getFEN())) {
+                    if (fenSnapshot.equals(context.getViewFEN())) {
                         bestMove = engineBestMove;
                         lastAnalysedFen = fenSnapshot;
                     }
@@ -239,6 +255,63 @@ public class AnalysisModeController implements GameModeController {
                 g2.drawString(line.toString(), SIDE_PANEL_X + 16,
                         SIDE_PANEL_Y + 62 + variationIndex * (metrics.getHeight() + 1));
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Move-quality backfill
+    // -----------------------------------------------------------------------
+
+    /**
+     * Populates evaluation metadata on the {@link MoveRecord}s adjacent to the
+     * position that was just evaluated, then recomputes their quality.
+     *
+     * <p>The evaluated position has {@code viewMoveIndex} half-moves played.
+     * That position is the "after" state of move {@code viewMoveIndex - 1} and
+     * the "before" state of move {@code viewMoveIndex}.  When both evals are
+     * known for a moved, {@link MoveRecord#recomputeQuality()} classifies the
+     * move as BEST / GOOD / INACCURACY / MISTAKE / BLUNDER.</p>
+     *
+     * @param gm             the game manager holding the move list
+     * @param viewMoveIndex  number of half-moves played at the evaluated position
+     *                       ({@code -1} means the live end of the game)
+     * @param whiteScoreCp   engine evaluation (white-perspective, centipawns)
+     */
+    private void backfillMoveQuality(GameManager gm, int viewMoveIndex, int whiteScoreCp) {
+        if (gm == null || gm.moves == null) {
+            return;
+        }
+        int totalMoves = gm.moves.size();
+        int positionIndex = (viewMoveIndex == -1) ? totalMoves : viewMoveIndex;
+
+        // If this position has a preceding move, record it as that move's "after" eval.
+        if (positionIndex >= 1 && positionIndex - 1 < totalMoves) {
+            MoveRecord before = gm.moves.get(positionIndex - 1);
+            before.evalAfterCp = Integer.valueOf(whiteScoreCp);
+            before.recomputeQuality();
+        }
+
+        // If a move starts from this position, record it as that move's "before" eval.
+        if (positionIndex < totalMoves) {
+            MoveRecord after = gm.moves.get(positionIndex);
+            after.evalBeforeCp = Integer.valueOf(whiteScoreCp);
+            after.recomputeQuality();
+        }
+    }
+
+    /**
+     * Computes the engine-perspective quality colour of a move's current state.
+     *
+     * @return the colour used to draw that move in the move log
+     */
+    public static Color getMoveQualityColor(MoveRecord.MoveQuality quality) {
+        switch (quality) {
+            case BEST:       return new Color(126, 255, 140);
+            case GOOD:       return new Color(160, 220, 160);
+            case INACCURACY: return new Color(230, 210, 110);
+            case MISTAKE:    return new Color(230, 160, 80);
+            case BLUNDER:    return new Color(230, 80, 80);
+            default:         return new Color(210, 215, 225);
         }
     }
 

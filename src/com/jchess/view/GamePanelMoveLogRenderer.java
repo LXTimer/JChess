@@ -2,6 +2,7 @@ package com.jchess.view;
 
 import com.jchess.game.GameManager;
 import com.jchess.input.Mouse;
+import com.jchess.mode.AnalysisModeController;
 import com.jchess.model.Board;
 import com.jchess.model.Piece;
 import com.jchess.model.piece.PieceType;
@@ -35,6 +36,11 @@ public class GamePanelMoveLogRenderer {
     private static final int SIDE_PANEL_Y = 35;
     private static final int SIDE_PANEL_WIDTH = 300;
     private static final int SIDE_PANEL_HEIGHT = 525;
+
+    private static final Font FONT_ROBOTO_BOLD_12 = new Font("Roboto", Font.BOLD, 12);
+    private static final Font FONT_ROBOTO_BOLD_11 = new Font("Roboto", Font.BOLD, 11);
+    private static final Font FONT_SEG_UI_PLAIN_13 = new Font("Segoe UI Symbol", Font.PLAIN, 13);
+    private static final Font FONT_SEG_UI_BOLD_13 = new Font("Segoe UI Symbol", Font.BOLD, 13);
 
     // Unicode chess symbols for piece types
     private static final String[] UNICODE_PIECES = {
@@ -139,7 +145,7 @@ public class GamePanelMoveLogRenderer {
         g2.drawRoundRect(boxX, boxY, boxWidth, boxHeight, 10, 10);
 
         // Section header with subtle underline
-        g2.setFont(new Font("Roboto", Font.BOLD, 12));
+        g2.setFont(FONT_ROBOTO_BOLD_12);
         g2.setColor(new Color(140, 150, 165));
         g2.drawString("MOVE LOG", boxX + 12, boxY + 20);
         g2.setColor(new Color(255, 255, 255, 12));
@@ -191,7 +197,7 @@ public class GamePanelMoveLogRenderer {
         boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
         boolean canGoEnd = gm.getViewMoveIndex() != -1;
         boolean canUndo = gm.canUndo();
-        boolean canResign = !gm.gameOver && !gm.stalemate;
+        boolean canResign = !gm.gameOver && !gm.stalemate && !gm.suppressGameOver;
         boolean hoverMenu = menuButtonRect.contains(mouse.x, mouse.y);
         boolean hoverUndoWhite = canUndo && undoWhiteRect.contains(mouse.x, mouse.y);
         boolean hoverUndoBlack = canUndo && undoBlackRect.contains(mouse.x, mouse.y);
@@ -205,7 +211,7 @@ public class GamePanelMoveLogRenderer {
         g2.setColor(new Color(200, 200, 200));
         g2.setStroke(new BasicStroke(1.5f));
 
-        g2.setFont(new Font("Roboto", Font.BOLD, 11));
+        g2.setFont(FONT_ROBOTO_BOLD_11);
         FontMetrics menuMetrics = g2.getFontMetrics();
         int menuTextX = menuButtonX + (menuButtonWidth - menuMetrics.stringWidth("Menu")) / 2;
         int menuTextY = buttonY + (menuButtonHeight + menuMetrics.getAscent() - menuMetrics.getDescent()) / 2 - 1;
@@ -243,10 +249,15 @@ public class GamePanelMoveLogRenderer {
 
 
         if (resignIcon != null) {
+            java.awt.Composite oldComposite = g2.getComposite();
+            if (!canResign) {
+                g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 0.35f));
+            }
             g2.drawImage(resignIcon, resignButtonX + (resignButtonWidth - resignIcon.getWidth()) / 2,
                     resignWhiteRect.y + (resignButtonHeight - resignIcon.getHeight()) / 2, null);
             g2.drawImage(resignIcon, resignButtonX + (resignButtonWidth - resignIcon.getWidth()) / 2,
                     resignBlackRect.y + (resignButtonHeight - resignIcon.getHeight()) / 2, null);
+            g2.setComposite(oldComposite);
         }
 
         g2.setColor(new Color(255, 255, 255, 20));
@@ -286,7 +297,7 @@ public class GamePanelMoveLogRenderer {
         int startY = rowStartY + 22;
         int maxVisible = 10;
 
-        g2.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 13));
+        g2.setFont(FONT_SEG_UI_PLAIN_13);
         for (int i = 0; i < maxVisible; i++) {
             int pairIndex = gm.scrollStartLine + i;
             if (pairIndex >= totalPairs) {
@@ -310,16 +321,18 @@ public class GamePanelMoveLogRenderer {
                 String fullText = formatMoveLabel(whiteMove);
                 
                 boolean isLastMove = (whiteMoveIndex == activeMoveIndex);
+                Color moveColor = AnalysisModeController.getMoveQualityColor(whiteMove.quality);
                 if (isLastMove) {
                     g2.setColor(new Color(0, 120, 215, 80));
                     g2.fillRoundRect(col2X - 5, currentY - 14, 80, 18, 5, 5);
                     g2.setColor(new Color(255, 255, 255));
-                    g2.setFont(new Font("Segoe UI Symbol", Font.BOLD, 13));
+                    g2.setFont(FONT_SEG_UI_BOLD_13);
                 } else {
-                    g2.setColor(new Color(210, 215, 225));
-                    g2.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 13));
+                    g2.setColor(moveColor);
+                    g2.setFont(FONT_SEG_UI_PLAIN_13);
                 }
                 g2.drawString(fullText, col2X, currentY);
+                drawQualityDot(g2, whiteMove.quality, col2X, currentY);
             }
 
             int blackMoveIndex = pairIndex * 2 + 1;
@@ -328,16 +341,18 @@ public class GamePanelMoveLogRenderer {
                 String fullText = formatMoveLabel(blackMove);
                 
                 boolean isLastMove = (blackMoveIndex == activeMoveIndex);
+                Color moveColor = AnalysisModeController.getMoveQualityColor(blackMove.quality);
                 if (isLastMove) {
                     g2.setColor(new Color(0, 120, 215, 80));
                     g2.fillRoundRect(col3X - 5, currentY - 14, 80, 18, 5, 5);
                     g2.setColor(new Color(255, 255, 255));
-                    g2.setFont(new Font("Segoe UI Symbol", Font.BOLD, 13));
+                    g2.setFont(FONT_SEG_UI_BOLD_13);
                 } else {
-                    g2.setColor(new Color(210, 215, 225));
-                    g2.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 13));
+                    g2.setColor(moveColor);
+                    g2.setFont(FONT_SEG_UI_PLAIN_13);
                 }
                 g2.drawString(fullText, col3X, currentY);
+                drawQualityDot(g2, blackMove.quality, col3X, currentY);
             }
         }
 
@@ -365,6 +380,22 @@ public class GamePanelMoveLogRenderer {
         String displaySan = sanToUnicode(move.san, move.color);
         String timeStr = formatMoveTime(move.timeSpentSeconds);
         return timeStr.isEmpty() ? displaySan : displaySan + " " + timeStr;
+    }
+
+    /**
+     * Draws a small filled dot to the right of a move that carries a known
+     * quality (BEST / GOOD / INACCURACY / MISTAKE / BLUNDER).  Moves with an
+     * unknown quality (e.g. no engine evaluation yet) draw nothing.
+     */
+    private void drawQualityDot(Graphics2D g2, MoveRecord.MoveQuality quality, int moveX, int baselineY) {
+        if (quality == null || quality == MoveRecord.MoveQuality.UNKNOWN) {
+            return;
+        }
+        int dotRadius = 3;
+        int dotX = moveX + 82;
+        int dotY = baselineY - dotRadius + 1;
+        g2.setColor(AnalysisModeController.getMoveQualityColor(quality));
+        g2.fillOval(dotX, dotY, dotRadius * 2, dotRadius * 2);
     }
 
     private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction, boolean enabled) {
