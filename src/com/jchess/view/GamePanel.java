@@ -15,6 +15,7 @@ import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.List;
 
 import javax.imageio.ImageIO;
 import javax.swing.JPanel;
@@ -292,6 +293,10 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                 boolean mouseJustReleased = !mouse.pressed && mousePressedLastFrame;
                 mousePressedLastFrame = mouse.pressed;
 
+                if (activeModeController instanceof AnalysisModeController) {
+                    ((AnalysisModeController) activeModeController).updatePvHover(mouse.x, mouse.y);
+                }
+
                 if (isGameFinished()) {
                     if (mouseJustPressed && handleEndScreenClick()) {
                         repaint();
@@ -301,6 +306,16 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     toggleMenu();
                 } else if (mouseJustPressed && homeButtonRect.contains(mouse.x, mouse.y)) {
                     returnToTitle();
+                } else if (mouseJustPressed && activeModeController instanceof AnalysisModeController
+                        && ((AnalysisModeController) activeModeController).isSettingsButtonHit(mouse.x, mouse.y)) {
+                    AnalysisSettingsDialog.show(this, (AnalysisModeController) activeModeController);
+                    repaint();
+                } else if (mouseJustPressed && activeModeController instanceof AnalysisModeController
+                        && ((AnalysisModeController) activeModeController).playClickedPvMove(modeContext, mouse.x, mouse.y)) {
+                    repaint();
+                } else if (mouseJustPressed && activeModeController instanceof AnalysisModeController
+                        && ((AnalysisModeController) activeModeController).handleToggleClick(modeContext, mouse.x, mouse.y)) {
+                    repaint();
                 } else if (menuOpen && mouseJustPressed && menuFlipRect.contains(mouse.x, mouse.y)) {
                     closeMenu();
                     gm.toggleFlipBoard();
@@ -327,6 +342,8 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     gm.viewNext();
                 } else if (mouseJustPressed && navEndRect.contains(mouse.x, mouse.y)) {
                     gm.viewEnd();
+                } else if (mouseJustPressed && moveLogRenderer.handleMoveClick()) {
+                    // Move log clicks navigate directly to the selected position.
                 } else if (mouseJustPressed && resignWhiteRect.contains(mouse.x, mouse.y) && !gm.gameOver && !gm.suppressGameOver) {
                     gm.resign(0);
                 } else if (mouseJustPressed && resignBlackRect.contains(mouse.x, mouse.y) && !gm.gameOver && !gm.suppressGameOver) {
@@ -623,7 +640,17 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
         drawRightClickHighlights(g2);
         drawRightClickArrows(g2);
         if (activeModeController instanceof AnalysisModeController) {
-            drawBestMoveArrow(g2, ((AnalysisModeController) activeModeController).getBestMove());
+            AnalysisModeController analysis = (AnalysisModeController) activeModeController;
+            List<String> variations = analysis.getPrincipalVariations();
+            if (variations.isEmpty()) {
+                drawBestMoveArrow(g2, analysis.getBestMove());
+            } else {
+                for (String variation : variations) {
+                    if (variation != null && !variation.isEmpty()) {
+                        drawBestMoveArrow(g2, variation.split("\\s+", 2)[0]);
+                    }
+                }
+            }
         }
 
         // Draw turn information and promotion options
@@ -792,10 +819,20 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
         g2.setColor(Color.white);
 
         if (gm.promotion) {
-            g2.setFont(new Font("Roboto", Font.PLAIN, 22));
-            drawCenteredString(g2, "Promote to:", SIDE_PANEL_CENTER_X, PROMOTION_LABEL_Y);
             for (Piece p : gm.promoPieces) {
-                g2.drawImage(p.img, p.getX(p.col), p.getY(p.row), Board.SIZE, Board.SIZE, null);
+                int x = p.getX(p.col);
+                int y = p.getY(p.row);
+                boolean hovered = new java.awt.Rectangle(x, y, Board.SIZE, Board.SIZE)
+                        .contains(mouse.x, mouse.y);
+
+                g2.setColor(hovered ? new Color(255, 255, 255, 110)
+                        : new Color(128, 128, 128, 235));
+                g2.fillRect(x, y, Board.SIZE, Board.SIZE);
+                g2.setColor(hovered ? new Color(255, 255, 255, 230)
+                        : new Color(255, 255, 255, 100));
+                g2.setStroke(new BasicStroke(2f));
+                g2.drawRect(x, y, Board.SIZE, Board.SIZE);
+                g2.drawImage(p.img, x, y, Board.SIZE, Board.SIZE, null);
             }
         } else {
             boolean isPlayerTurn = (gm.currentColor == GameManager.WHITE) == isPlayerWhite;
@@ -1214,10 +1251,20 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
     private void updateActionCursor() {
         boolean hovering = false;
 
-        if (isGameFinished()) {
+        if (gm.promotion) {
+            for (Piece p : gm.promoPieces) {
+                if (new java.awt.Rectangle(p.getX(p.col), p.getY(p.row), Board.SIZE, Board.SIZE)
+                        .contains(mouse.x, mouse.y)) {
+                    hovering = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hovering && isGameFinished()) {
             hovering = restartButtonRect.contains(mouse.x, mouse.y)
                     || titleButtonRect.contains(mouse.x, mouse.y);
-        } else {
+        } else if (!hovering) {
             boolean canUndo = gm.canUndo();
             boolean canResign = !gm.gameOver && !gm.stalemate && !gm.suppressGameOver;
             boolean canGoStart = !gm.moves.isEmpty() && gm.getViewMoveIndex() != 0;
@@ -1225,7 +1272,8 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
             boolean canGoNext = gm.getViewMoveIndex() != -1 && gm.getViewMoveIndex() < gm.moves.size();
             boolean canGoEnd = gm.getViewMoveIndex() != -1;
 
-            hovering = menuButtonRect.contains(mouse.x, mouse.y)
+            hovering = moveLogRenderer.isMoveHovered()
+                    || menuButtonRect.contains(mouse.x, mouse.y)
                     || homeButtonRect.contains(mouse.x, mouse.y)
                     || (canUndo && (undoWhiteRect.contains(mouse.x, mouse.y) || undoBlackRect.contains(mouse.x, mouse.y)))
                     || (canResign && (resignWhiteRect.contains(mouse.x, mouse.y) || resignBlackRect.contains(mouse.x, mouse.y)))
@@ -1233,6 +1281,13 @@ public class GamePanel extends JPanel implements GameModeCallbacks {
                     || (canGoPrev && navPrevRect.contains(mouse.x, mouse.y))
                     || (canGoNext && navNextRect.contains(mouse.x, mouse.y))
                     || (canGoEnd && navEndRect.contains(mouse.x, mouse.y));
+
+            if (activeModeController instanceof AnalysisModeController) {
+                AnalysisModeController analysis = (AnalysisModeController) activeModeController;
+                boolean settingsHover = analysis.isSettingsButtonHit(mouse.x, mouse.y);
+                analysis.setSettingsHovered(settingsHover);
+                hovering = hovering || settingsHover || analysis.isPvMoveHovered();
+            }
         }
 
         java.awt.Cursor targetCursor = hovering ? HAND_CURSOR : DEFAULT_CURSOR;

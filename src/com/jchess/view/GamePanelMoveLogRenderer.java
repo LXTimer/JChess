@@ -2,7 +2,6 @@ package com.jchess.view;
 
 import com.jchess.game.GameManager;
 import com.jchess.input.Mouse;
-import com.jchess.mode.AnalysisModeController;
 import com.jchess.model.Board;
 import com.jchess.model.Piece;
 import com.jchess.model.piece.PieceType;
@@ -319,40 +318,50 @@ public class GamePanelMoveLogRenderer {
             if (whiteMoveIndex < totalMoves) {
                 MoveRecord whiteMove = gm.moves.get(whiteMoveIndex);
                 String fullText = formatMoveLabel(whiteMove);
-                
+                boolean isBlunder = whiteMove.quality == MoveRecord.MoveQuality.BLUNDER;
                 boolean isLastMove = (whiteMoveIndex == activeMoveIndex);
-                Color moveColor = AnalysisModeController.getMoveQualityColor(whiteMove.quality);
-                if (isLastMove) {
+                boolean isHovered = isMoveHovered(whiteMoveIndex, mouse.x, mouse.y);
+                Color moveColor = isBlunder ? new Color(230, 80, 80) : new Color(210, 215, 225);
+                if (isHovered) {
+                    g2.setColor(new Color(100, 200, 150, 90));
+                    g2.fillRoundRect(col2X - 5, currentY - 14, 80, 18, 5, 5);
+                    g2.setColor(moveColor);
+                    g2.setFont(FONT_SEG_UI_BOLD_13);
+                } else if (isLastMove) {
                     g2.setColor(new Color(0, 120, 215, 80));
                     g2.fillRoundRect(col2X - 5, currentY - 14, 80, 18, 5, 5);
-                    g2.setColor(new Color(255, 255, 255));
+                    g2.setColor(moveColor);
                     g2.setFont(FONT_SEG_UI_BOLD_13);
                 } else {
                     g2.setColor(moveColor);
                     g2.setFont(FONT_SEG_UI_PLAIN_13);
                 }
                 g2.drawString(fullText, col2X, currentY);
-                drawQualityDot(g2, whiteMove.quality, col2X, currentY);
             }
 
             int blackMoveIndex = pairIndex * 2 + 1;
             if (blackMoveIndex < totalMoves) {
                 MoveRecord blackMove = gm.moves.get(blackMoveIndex);
                 String fullText = formatMoveLabel(blackMove);
-                
+                boolean isBlunder = blackMove.quality == MoveRecord.MoveQuality.BLUNDER;
                 boolean isLastMove = (blackMoveIndex == activeMoveIndex);
-                Color moveColor = AnalysisModeController.getMoveQualityColor(blackMove.quality);
-                if (isLastMove) {
+                boolean isHovered = isMoveHovered(blackMoveIndex, mouse.x, mouse.y);
+                Color moveColor = isBlunder ? new Color(230, 80, 80) : new Color(210, 215, 225);
+                if (isHovered) {
+                    g2.setColor(new Color(100, 200, 150, 90));
+                    g2.fillRoundRect(col3X - 5, currentY - 14, 80, 18, 5, 5);
+                    g2.setColor(moveColor);
+                    g2.setFont(FONT_SEG_UI_BOLD_13);
+                } else if (isLastMove) {
                     g2.setColor(new Color(0, 120, 215, 80));
                     g2.fillRoundRect(col3X - 5, currentY - 14, 80, 18, 5, 5);
-                    g2.setColor(new Color(255, 255, 255));
+                    g2.setColor(moveColor);
                     g2.setFont(FONT_SEG_UI_BOLD_13);
                 } else {
                     g2.setColor(moveColor);
                     g2.setFont(FONT_SEG_UI_PLAIN_13);
                 }
                 g2.drawString(fullText, col3X, currentY);
-                drawQualityDot(g2, blackMove.quality, col3X, currentY);
             }
         }
 
@@ -376,26 +385,50 @@ public class GamePanelMoveLogRenderer {
         }
     }
 
+    public boolean handleMoveClick() {
+        int moveIndex = getMoveIndexAt(mouse.x, mouse.y);
+        if (moveIndex < 0 || moveIndex >= gm.moves.size()) {
+            return false;
+        }
+
+        gm.viewMove(moveIndex + 1);
+        return true;
+    }
+
+    public boolean isMoveHovered() {
+        return getMoveIndexAt(mouse.x, mouse.y) >= 0;
+    }
+
+    private boolean isMoveHovered(int moveIndex, int mouseX, int mouseY) {
+        return getMoveIndexAt(mouseX, mouseY) == moveIndex;
+    }
+
+    private int getMoveIndexAt(int mouseX, int mouseY) {
+        int boxX = SIDE_PANEL_X + 14;
+        int boxY = SIDE_PANEL_Y + 110;
+        int col2X = boxX + 70;
+        int col3X = boxX + 150;
+        int startY = boxY + 48 + 22;
+        int rowHeight = 22;
+        int row = (mouseY - (startY - 15)) / rowHeight;
+        if (row < 0 || row >= 10 || mouseY < startY - 15 || mouseY > startY + 9 * rowHeight + 3) {
+            return -1;
+        }
+
+        int pairIndex = gm.scrollStartLine + row;
+        if (mouseX >= col2X - 5 && mouseX < col3X - 5) {
+            return pairIndex * 2;
+        }
+        if (mouseX >= col3X - 5 && mouseX < col3X + 75) {
+            return pairIndex * 2 + 1;
+        }
+        return -1;
+    }
+
     private String formatMoveLabel(MoveRecord move) {
         String displaySan = sanToUnicode(move.san, move.color);
         String timeStr = formatMoveTime(move.timeSpentSeconds);
         return timeStr.isEmpty() ? displaySan : displaySan + " " + timeStr;
-    }
-
-    /**
-     * Draws a small filled dot to the right of a move that carries a known
-     * quality (BEST / GOOD / INACCURACY / MISTAKE / BLUNDER).  Moves with an
-     * unknown quality (e.g. no engine evaluation yet) draw nothing.
-     */
-    private void drawQualityDot(Graphics2D g2, MoveRecord.MoveQuality quality, int moveX, int baselineY) {
-        if (quality == null || quality == MoveRecord.MoveQuality.UNKNOWN) {
-            return;
-        }
-        int dotRadius = 3;
-        int dotX = moveX + 82;
-        int dotY = baselineY - dotRadius + 1;
-        g2.setColor(AnalysisModeController.getMoveQualityColor(quality));
-        g2.fillOval(dotX, dotY, dotRadius * 2, dotRadius * 2);
     }
 
     private void drawNaviTriangle(Graphics2D g2, int x, int y, String direction, boolean enabled) {

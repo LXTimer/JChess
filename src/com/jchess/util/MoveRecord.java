@@ -6,17 +6,9 @@ public class MoveRecord {
 
     /** Quality classification for a move, based on engine evaluation loss. */
     public enum MoveQuality {
-        /** Loss < 20 cp — engine's top choice. */
-        BEST,
-        /** Loss 20–70 cp — solid, slightly suboptimal. */
-        GOOD,
-        /** Loss 70–150 cp — noticeable but not fatal. */
-        INACCURACY,
-        /** Loss 150–300 cp — significantly worsens the position. */
-        MISTAKE,
         /** Loss ≥ 300 cp — a serious error that often changes the outcome. */
         BLUNDER,
-        /** Evaluation data not yet available. */
+        /** Evaluation data not yet available or not a blunder. */
         UNKNOWN
     }
 
@@ -63,11 +55,7 @@ public class MoveRecord {
     /**
      * Recomputes {@link #quality} from the stored before/after evaluations.
      * <p>If either evaluation is missing, the quality is reset to {@link MoveQuality#UNKNOWN}.
-     * <p>Loss is measured from the mover's perspective:
-     *   <ul>
-     *     <li>White mover: {@code loss = evalBeforeCp - evalAfterCp}</li>
-     *     <li>Black mover: {@code loss = evalAfterCp - evalBeforeCp}</li>
-     *   </ul>
+     * <p>Only blunders are flagged; all other moves stay {@link MoveQuality#UNKNOWN}.
      */
     public void recomputeQuality() {
         if (evalBeforeCp == null || evalAfterCp == null) {
@@ -82,16 +70,6 @@ public class MoveRecord {
             loss = evalAfterCp - evalBeforeCp;
         }
 
-        if (loss >= 300) {
-            quality = MoveQuality.BLUNDER;
-        } else if (loss >= 150) {
-            quality = MoveQuality.MISTAKE;
-        } else if (loss >= 70) {
-            quality = MoveQuality.INACCURACY;
-        } else if (loss >= 20) {
-            quality = MoveQuality.GOOD;
-        } else {
-            quality = MoveQuality.BEST;
-        }
+        quality = (loss >= 300) ? MoveQuality.BLUNDER : MoveQuality.UNKNOWN;
     }
 }

@@ -251,6 +251,22 @@ public class StockfishEngine {
         }
     }
 
+    public synchronized void setThreads(int count) {
+        try {
+            sendCommand("setoption name Threads value " + Math.max(1, Math.min(4, count)));
+        } catch (IOException e) {
+            System.err.println("Failed to set Stockfish Threads: " + e.getMessage());
+        }
+    }
+
+    public synchronized void setHash(int megabytes) {
+        try {
+            sendCommand("setoption name Hash value " + Math.max(16, Math.min(512, megabytes)));
+        } catch (IOException e) {
+            System.err.println("Failed to set Stockfish Hash: " + e.getMessage());
+        }
+    }
+
     /**
      * Finds the best move for the given FEN position.
      *
@@ -345,6 +361,49 @@ public class StockfishEngine {
                         if (onEvaluation != null) onEvaluation.accept(combined);
                     }
                 } else if (line.startsWith("bestmove")) {
+                    String[] tokens = line.split("\\s+");
+                    return tokens.length >= 2 ? tokens[1] : null;
+                }
+            }
+            sendCommand("stop");
+        } catch (IOException | InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return null;
+    }
+
+    public synchronized String analyzeAtTime(String fen, int movetimeMillis, int multiPv,
+            Consumer<Evaluation> onEvaluation, BooleanSupplier shouldContinue) {
+        try {
+            sendCommand("isready");
+            if (!waitForToken("readyok", 3000)) return null;
+            stdoutLines.clear();
+            sendCommand("position fen " + fen);
+            sendCommand("setoption name MultiPV value " + Math.max(1, Math.min(4, multiPv)));
+            int boundedTime = Math.max(2000, Math.min(60000, movetimeMillis));
+            sendCommand("go movetime " + boundedTime);
+            Map<Integer, Evaluation> evaluationsByPv = new TreeMap<>();
+            Evaluation latestEvaluation = null;
+            boolean stopSent = false;
+            long deadline = System.currentTimeMillis() + boundedTime + 5000L;
+            while (System.currentTimeMillis() < deadline) {
+                if (!stopSent && !shouldContinue.getAsBoolean()) {
+                    sendCommand("stop");
+                    stopSent = true;
+                }
+                String line = stdoutLines.poll(50, TimeUnit.MILLISECONDS);
+                if (line == null) continue;
+                if (line.startsWith("info ")) {
+                    Evaluation parsed = parseEvaluationLine(line);
+                    if (parsed != null) {
+                        evaluationsByPv.put(parseMultiPvIndex(line), parsed);
+                        latestEvaluation = combineEvaluations(parsed, evaluationsByPv);
+                        if (onEvaluation != null) onEvaluation.accept(latestEvaluation);
+                    }
+                } else if (line.startsWith("bestmove")) {
+                    if (onEvaluation != null && latestEvaluation != null) {
+                        onEvaluation.accept(latestEvaluation);
+                    }
                     String[] tokens = line.split("\\s+");
                     return tokens.length >= 2 ? tokens[1] : null;
                 }

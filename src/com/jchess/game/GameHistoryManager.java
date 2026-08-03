@@ -124,6 +124,10 @@ public class GameHistoryManager {
         viewMoveIndex = -1;
     }
 
+    public void viewMove(int moveCount) {
+        viewMoveIndex = Math.max(0, Math.min(moveCount, gm.moves.size()));
+    }
+
     public void viewNext() {
         if (viewMoveIndex == -1) {
             return;

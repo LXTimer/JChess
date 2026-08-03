@@ -218,14 +218,7 @@ public class MoveValidator {
 
     public boolean canPromote() {
         if (gm.activeP != null && gm.activeP.type == PieceType.PAWN) {
-            if ((gm.currentColor == WHITE && gm.activeP.row == 0) || (gm.currentColor == BLACK && gm.activeP.row == 7)) {
-                gm.promoPieces.clear();
-                gm.promoPieces.add(new com.jchess.model.piece.Rook(9, 2, gm.currentColor));
-                gm.promoPieces.add(new com.jchess.model.piece.Knight(9, 3, gm.currentColor));
-                gm.promoPieces.add(new com.jchess.model.piece.Bishop(9, 4, gm.currentColor));
-                gm.promoPieces.add(new com.jchess.model.piece.Queen(9, 5, gm.currentColor));
-                return true;
-            }
+            return gm.activeP.row == 0 || gm.activeP.row == 7;
         }
         return false;
     }

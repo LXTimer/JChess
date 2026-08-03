@@ -327,6 +327,7 @@ public class GameManager {
         }
 
         if (moveValidator.canPromote()) {
+            createPromotionOptions();
             promotion = true;
         } else {
             finishTurn();
@@ -378,12 +379,38 @@ public class GameManager {
 
                     activeP = null;
                     promotion = false;
+                    promoPieces.clear();
                     canMove = false;
                     validSquare = false;
                     legalMoveSquares.clear();
                     finishTurn();
                     return;
                 }
+            }
+        }
+    }
+
+    private void createPromotionOptions() {
+        promoPieces.clear();
+        int rowStep = activeP.row == 0 ? 1 : -1;
+
+        PieceType[] promotionTypes = {PieceType.QUEEN, PieceType.KNIGHT,
+                PieceType.ROOK, PieceType.BISHOP};
+        for (int i = 0; i < promotionTypes.length; i++) {
+            int row = activeP.row + rowStep * i;
+            switch (promotionTypes[i]) {
+                case KNIGHT:
+                    promoPieces.add(new Knight(activeP.col, row, currentColor));
+                    break;
+                case ROOK:
+                    promoPieces.add(new Rook(activeP.col, row, currentColor));
+                    break;
+                case BISHOP:
+                    promoPieces.add(new Bishop(activeP.col, row, currentColor));
+                    break;
+                default:
+                    promoPieces.add(new Queen(activeP.col, row, currentColor));
+                    break;
             }
         }
     }
@@ -627,6 +654,15 @@ public class GameManager {
             p.boardFlipped = boardFlipped;
         }
 
+        for (Piece p : promoPieces) {
+            p.col = 7 - p.col;
+            p.row = 7 - p.row;
+            p.preCol = 7 - p.preCol;
+            p.preRow = 7 - p.preRow;
+            p.x = p.getX(p.col);
+            p.y = p.getY(p.row);
+        }
+
         for (Piece p : pieces) {
             p.boardFlipped = boardFlipped;
         }
@@ -666,7 +702,11 @@ public class GameManager {
 
     public String generateSAN(Piece piece, int targetCol, int targetRow, boolean isCapture, boolean isCastling) {
         if (isCastling) {
-            return targetCol > piece.preCol ? "O-O" : "O-O-O";
+            // Kingside castling moves the king toward the h-file (increasing column
+            // in the unflipped orientation). When the board is flipped, the column
+            // direction is inverted, so the comparison must be reversed accordingly.
+            boolean kingSide = boardFlipped ? targetCol < piece.preCol : targetCol > piece.preCol;
+            return kingSide ? "O-O" : "O-O-O";
         }
 
         StringBuilder sb = new StringBuilder();
@@ -1074,9 +1114,18 @@ public class GameManager {
      * Pieces in 'pieces' are stored in display coords, so we un-flip if needed.
      */
     private Piece getPieceAtAbsolute(int absCol, int absRow) {
+        return getPieceAtAbsolute(pieces, absCol, absRow);
+    }
+
+    private Piece getPieceAtAbsolute(ArrayList<Piece> position, int absCol, int absRow) {
         int col = boardFlipped ? 7 - absCol : absCol;
         int row = boardFlipped ? 7 - absRow : absRow;
-        return getPieceAt(col, row);
+        for (Piece piece : position) {
+            if (piece.col == col && piece.row == row) {
+                return piece;
+            }
+        }
+        return null;
     }
 
 
@@ -1090,23 +1139,21 @@ public class GameManager {
      * of the displayed board state rather than the live position.
      */
     public String getViewFEN() {
-        ArrayList<Piece> savedPieces = pieces;
-        int savedCurrentColor = currentColor;
-        pieces = new ArrayList<>(getDisplayPieces());
         // For historical positions, derive the side-to-move from the move index
         // so the FEN's active-color field is correct. viewMoveIndex == -1 means
         // the live position, which already has the correct currentColor.
         int viewMoveIndex = getViewMoveIndex();
-        if (viewMoveIndex != -1) {
-            currentColor = (viewMoveIndex % 2 == 0) ? WHITE : BLACK;
-        }
-        String fen = getFEN();
-        pieces = savedPieces;
-        currentColor = savedCurrentColor;
-        return fen;
+        int viewColor = viewMoveIndex == -1
+                ? currentColor
+                : ((viewMoveIndex % 2 == 0) ? WHITE : BLACK);
+        return buildFEN(new ArrayList<>(getDisplayPieces()), viewColor);
     }
 
     public String getFEN() {
+        return buildFEN(pieces, currentColor);
+    }
+
+    private String buildFEN(ArrayList<Piece> position, int sideToMove) {
         StringBuilder fen = new StringBuilder();
 
         // Build piece placement (ranks 8 to 1, row 0 = rank 8, row 7 = rank 1)
@@ -1114,7 +1161,7 @@ public class GameManager {
             int row = 8 - rank; // Convert rank to internal row
             int emptyCount = 0;
             for (int col = 0; col < 8; col++) {
-                Piece piece = getPieceAtAbsolute(col, row);
+                Piece piece = getPieceAtAbsolute(position, col, row);
                 if (piece != null) {
                     if (emptyCount > 0) {
                         fen.append(emptyCount);
@@ -1137,14 +1184,14 @@ public class GameManager {
         
 
         // Active color
-        fen.append(' ').append(currentColor == WHITE ? 'w' : 'b');
+        fen.append(' ').append(sideToMove == WHITE ? 'w' : 'b');
 
         // Castling rights
         StringBuilder castling = new StringBuilder();
-        if (hasCastlingRights(WHITE, true))  castling.append('K');
-        if (hasCastlingRights(WHITE, false)) castling.append('Q');
-        if (hasCastlingRights(BLACK, true))  castling.append('k');
-        if (hasCastlingRights(BLACK, false)) castling.append('q');
+        if (hasCastlingRights(position, WHITE, true))  castling.append('K');
+        if (hasCastlingRights(position, WHITE, false)) castling.append('Q');
+        if (hasCastlingRights(position, BLACK, true))  castling.append('k');
+        if (hasCastlingRights(position, BLACK, false)) castling.append('q');
         if (castling.length() == 0) castling.append('-');
         fen.append(' ').append(castling);
 
@@ -1272,9 +1319,13 @@ public class GameManager {
     }
 
     private boolean hasCastlingRights(int color, boolean kingSide) {
+        return hasCastlingRights(pieces, color, kingSide);
+    }
+
+    private boolean hasCastlingRights(ArrayList<Piece> position, int color, boolean kingSide) {
         // Find king
         Piece king = null;
-        for (Piece p : pieces) {
+        for (Piece p : position) {
             if (p.type == PieceType.KING && p.color == color) {
                 king = p;
                 break;
@@ -1284,7 +1335,7 @@ public class GameManager {
 
         // Find relevant rook
         int rookCol = kingSide ? 7 : 0;
-        for (Piece p : pieces) {
+        for (Piece p : position) {
             int absCol = boardFlipped ? 7 - p.col : p.col;
             if (p.type == PieceType.ROOK && p.color == color && absCol == rookCol) {
                 return !p.moved;
@@ -1329,6 +1380,10 @@ public class GameManager {
 
     public void viewEnd() {
         historyManager.viewEnd();
+    }
+
+    public void viewMove(int moveCount) {
+        historyManager.viewMove(moveCount);
     }
 
     public void viewNext() {
