@@ -103,7 +103,7 @@ public class AnalysisModeController implements GameModeController {
         engine = null;
         if (engineToStop != null) {
             // Avoid blocking Swing's EDT while an analysis call is still running.
-            new Thread(engineToStop::stop, "stockfish-analysis-stop").start();
+            new Thread(engineToStop::forceStop, "stockfish-analysis-stop").start();
         }
         engineEnabled = true;
         disabledFenSnapshot = null;
@@ -708,7 +708,7 @@ public class AnalysisModeController implements GameModeController {
             StockfishEngine engineToStop = engine;
             engine = null;
             if (engineToStop != null) {
-                new Thread(engineToStop::stop, "stockfish-analysis-toggle-stop").start();
+                new Thread(engineToStop::forceStop, "stockfish-analysis-toggle-stop").start();
             }
             return;
         }

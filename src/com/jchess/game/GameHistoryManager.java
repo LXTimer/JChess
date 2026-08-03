@@ -25,6 +25,7 @@ public class GameHistoryManager {
     private final ArrayList<Boolean> whiteResignHistory = new ArrayList<>();
     private final ArrayList<Boolean> blackResignHistory = new ArrayList<>();
     private final ArrayList<Boolean> boardFlippedHistory = new ArrayList<>();
+    private final ArrayList<java.util.List<String>> positionKeysHistory = new ArrayList<>();
 
     private ArrayList<Piece> preMoveSnapshot;
     private int viewMoveIndex = -1;
@@ -59,6 +60,7 @@ public class GameHistoryManager {
         whiteResignHistory.add(gm.whiteResign);
         blackResignHistory.add(gm.blackResign);
         boardFlippedHistory.add(gm.boardFlipped);
+        positionKeysHistory.add(gm.getPositionKeysSnapshot());
         preMoveSnapshot = null;
     }
 
@@ -83,6 +85,11 @@ public class GameHistoryManager {
         gm.whiteResign = whiteResignHistory.remove(lastIndex);
         gm.blackResign = blackResignHistory.remove(lastIndex);
         gm.boardFlipped = boardFlippedHistory.remove(lastIndex);
+
+        // Restore the repetition-detection state captured before this move.
+        // Without this, undoing would leave stale occurrence counters and
+        // threefold-repetition draws would be missed after replaying the line.
+        gm.restorePositionKeys(positionKeysHistory.remove(lastIndex));
 
         for (Piece p : gm.pieces) {
             p.boardFlipped = gm.boardFlipped;
@@ -162,6 +169,7 @@ public class GameHistoryManager {
         whiteResignHistory.clear();
         blackResignHistory.clear();
         boardFlippedHistory.clear();
+        positionKeysHistory.clear();
         preMoveSnapshot = null;
         viewMoveIndex = -1;
     }

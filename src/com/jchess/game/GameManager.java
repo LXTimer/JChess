@@ -49,6 +49,9 @@ public class GameManager {
     public boolean drawByRepetition = false;
     public boolean drawByFiftyMove = false;
     private HashMap<String, Integer> positionHistory = new HashMap<>();
+    // Parallel list of position keys in the order they were recorded (one per move + initial).
+    // Kept in sync with positionHistory so undo can decrement the correct counter.
+    private final ArrayList<String> positionKeys = new ArrayList<>();
 
     private final Mouse mouse;
     
@@ -145,6 +148,7 @@ public class GameManager {
         drawByRepetition = false;
         drawByFiftyMove = false;
         positionHistory.clear();
+        positionKeys.clear();
         // Record the initial position
         recordCurrentPosition();
     }
@@ -517,7 +521,7 @@ public class GameManager {
         sb.append(' ').append(castling);
         
         // En passant target square
-        sb.append(' ').append(getEnPassantSquare());
+        sb.append(' ').append(getEnPassantSquare(moves.size()));
         
         return sb.toString();
     }
@@ -527,7 +531,33 @@ public class GameManager {
      */
     private void recordCurrentPosition() {
         String key = getPositionKey();
+        positionKeys.add(key);
         positionHistory.put(key, positionHistory.getOrDefault(key, 0) + 1);
+    }
+
+    /**
+     * Returns a defensive copy of the sequential list of recorded position keys.
+     * Used by {@link GameHistoryManager} to snapshot/restore repetition state on undo.
+     */
+    java.util.List<String> getPositionKeysSnapshot() {
+        return new java.util.ArrayList<>(positionKeys);
+    }
+
+    /**
+     * Restores the repetition detection state from a previously saved snapshot.
+     * Rebuilds both the key list and the occurrence counter map.
+     *
+     * @param keys the recorded position keys, in chronological order
+     */
+    void restorePositionKeys(java.util.List<String> keys) {
+        positionKeys.clear();
+        positionHistory.clear();
+        if (keys != null) {
+            positionKeys.addAll(keys);
+            for (String key : keys) {
+                positionHistory.put(key, positionHistory.getOrDefault(key, 0) + 1);
+            }
+        }
     }
 
     /**
@@ -543,7 +573,7 @@ public class GameManager {
      * Checks if the 50-move rule applies (100 half-moves without pawn move or capture).
      */
     private boolean isFiftyMoveRule() {
-        return getHalfmoveClock() >= 100;
+        return getHalfmoveClock(moves.size()) >= 100;
     }
 
     private void finishTurn() {
@@ -701,6 +731,14 @@ public class GameManager {
     }
 
     public String generateSAN(Piece piece, int targetCol, int targetRow, boolean isCapture, boolean isCastling) {
+        // All coordinates passed here are in display space (they may be flipped
+        // when the player is Black). SAN notation must always use absolute
+        // (unflipped) coordinates, so convert before formatting.
+        int absPreCol = boardFlipped ? 7 - piece.preCol : piece.preCol;
+        int absPreRow = boardFlipped ? 7 - piece.preRow : piece.preRow;
+        int absTargetCol = boardFlipped ? 7 - targetCol : targetCol;
+        int absTargetRow = boardFlipped ? 7 - targetRow : targetRow;
+
         if (isCastling) {
             // Kingside castling moves the king toward the h-file (increasing column
             // in the unflipped orientation). When the board is flipped, the column
@@ -713,11 +751,11 @@ public class GameManager {
 
         if (piece.type == PieceType.PAWN) {
             if (isCapture) {
-                sb.append((char) ('a' + piece.preCol));
+                sb.append((char) ('a' + absPreCol));
                 sb.append('x');
             }
-            sb.append((char) ('a' + targetCol));
-            sb.append(8 - targetRow);
+            sb.append((char) ('a' + absTargetCol));
+            sb.append(8 - absTargetRow);
         } else {
             String prefix = piece.type.getNotation();
             sb.append(prefix);
@@ -730,6 +768,8 @@ public class GameManager {
                 if (p != piece && p.color == piece.color && p.type == piece.type) {
                     if (moveValidator.canLegallyMove(p, targetCol, targetRow)) {
                         anotherCanMove = true;
+                        // Comparing display-space columns/rows is equivalent to comparing
+                        // absolute ones (the 7-x flip preserves file/rank equality).
                         if (p.col == piece.preCol) {
                             shareFile = true;
                         }
@@ -742,12 +782,12 @@ public class GameManager {
 
             if (anotherCanMove) {
                 if (shareFile && shareRank) {
-                    sb.append((char) ('a' + piece.preCol));
-                    sb.append(8 - piece.preRow);
+                    sb.append((char) ('a' + absPreCol));
+                    sb.append(8 - absPreRow);
                 } else if (shareFile) {
-                    sb.append(8 - piece.preRow);
+                    sb.append(8 - absPreRow);
                 } else {
-                    sb.append((char) ('a' + piece.preCol));
+                    sb.append((char) ('a' + absPreCol));
                 }
             }
 
@@ -755,8 +795,8 @@ public class GameManager {
                 sb.append('x');
             }
 
-            sb.append((char) ('a' + targetCol));
-            sb.append(8 - targetRow);
+            sb.append((char) ('a' + absTargetCol));
+            sb.append(8 - absTargetRow);
         }
 
         return sb.toString();
@@ -1146,14 +1186,15 @@ public class GameManager {
         int viewColor = viewMoveIndex == -1
                 ? currentColor
                 : ((viewMoveIndex % 2 == 0) ? WHITE : BLACK);
-        return buildFEN(new ArrayList<>(getDisplayPieces()), viewColor);
+        int moveCount = viewMoveIndex == -1 ? moves.size() : viewMoveIndex;
+        return buildFEN(new ArrayList<>(getDisplayPieces()), viewColor, moveCount);
     }
 
     public String getFEN() {
-        return buildFEN(pieces, currentColor);
+        return buildFEN(pieces, currentColor, moves.size());
     }
 
-    private String buildFEN(ArrayList<Piece> position, int sideToMove) {
+    private String buildFEN(ArrayList<Piece> position, int sideToMove, int moveCount) {
         StringBuilder fen = new StringBuilder();
 
         // Build piece placement (ranks 8 to 1, row 0 = rank 8, row 7 = rank 1)
@@ -1207,9 +1248,9 @@ public class GameManager {
             halfmove = 0;
             fullmove = 1;
         } else {
-            enPassant = getEnPassantSquare();
-            halfmove = getHalfmoveClock();
-            fullmove = moves.size() / 2 + 1;
+            enPassant = getEnPassantSquare(moveCount);
+            halfmove = getHalfmoveClock(moveCount);
+            fullmove = moveCount / 2 + 1;
         }
 
         fen.append(' ').append(enPassant);
@@ -1344,11 +1385,12 @@ public class GameManager {
         return false;
     }
 
-    private String getEnPassantSquare() {
-        if (moves.isEmpty()) {
+    private String getEnPassantSquare(int moveCount) {
+        int boundedMoveCount = Math.max(0, Math.min(moveCount, moves.size()));
+        if (boundedMoveCount == 0) {
             return "-";
         }
-        MoveRecord lastMove = moves.get(moves.size() - 1);
+        MoveRecord lastMove = moves.get(boundedMoveCount - 1);
         if (lastMove.type != PieceType.PAWN) {
             return "-";
         }
@@ -1362,9 +1404,10 @@ public class GameManager {
         return String.format("%c%d", epFile, 8 - epRow);
     }
 
-    private int getHalfmoveClock() {
+    private int getHalfmoveClock(int moveCount) {
+        int boundedMoveCount = Math.max(0, Math.min(moveCount, moves.size()));
         int count = 0;
-        for (int i = moves.size() - 1; i >= 0; i--) {
+        for (int i = boundedMoveCount - 1; i >= 0; i--) {
             MoveRecord m = moves.get(i);
             if (m.isCapture || PieceType.PAWN.equals(m.type)) {
                 break;

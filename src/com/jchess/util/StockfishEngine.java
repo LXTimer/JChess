@@ -25,8 +25,8 @@ import java.util.concurrent.TimeUnit;
  * Handles the Universal Chess Interface (UCI) communication with the Stockfish chess engine.
  */
 public class StockfishEngine {
-    private Process process;
-    private OutputStreamWriter writer;
+    private volatile Process process;
+    private volatile OutputStreamWriter writer;
     private String enginePath;
 
     public static final class Evaluation {
@@ -105,6 +105,7 @@ public class StockfishEngine {
     // Robust UCI reader: engine stdout is read on its own thread and lines are queued.
     private final BlockingQueue<String> stdoutLines = new LinkedBlockingQueue<>();
     private volatile boolean readerThreadRunning = false;
+    private volatile boolean forceStopRequested = false;
     private Thread stdoutReaderThread;
 
 
@@ -149,6 +150,7 @@ public class StockfishEngine {
     public synchronized boolean start() {
         try {
             stop(); // ensure no prior process is running
+            forceStopRequested = false;
 
             process = new ProcessBuilder(enginePath).start();
             stdoutLines.clear();
@@ -298,7 +300,7 @@ public class StockfishEngine {
 
             // Wait for bestmove line from queued stdout.
             long deadline = System.currentTimeMillis() + 10000;
-            while (System.currentTimeMillis() < deadline) {
+            while (!forceStopRequested && System.currentTimeMillis() < deadline) {
                 try {
                     String line = stdoutLines.poll(50, TimeUnit.MILLISECONDS);
                     if (line == null) continue;
@@ -365,7 +367,7 @@ public class StockfishEngine {
                     return tokens.length >= 2 ? tokens[1] : null;
                 }
             }
-            sendCommand("stop");
+            if (!forceStopRequested) sendCommand("stop");
         } catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -386,7 +388,7 @@ public class StockfishEngine {
             Evaluation latestEvaluation = null;
             boolean stopSent = false;
             long deadline = System.currentTimeMillis() + boundedTime + 5000L;
-            while (System.currentTimeMillis() < deadline) {
+            while (!forceStopRequested && System.currentTimeMillis() < deadline) {
                 if (!stopSent && !shouldContinue.getAsBoolean()) {
                     sendCommand("stop");
                     stopSent = true;
@@ -408,7 +410,7 @@ public class StockfishEngine {
                     return tokens.length >= 2 ? tokens[1] : null;
                 }
             }
-            sendCommand("stop");
+            if (!forceStopRequested) sendCommand("stop");
         } catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -530,6 +532,7 @@ public class StockfishEngine {
      * Stops the engine and terminates the process.
      */
     public synchronized void stop() {
+        forceStopRequested = true;
         readerThreadRunning = false;
 
         try {
@@ -548,6 +551,28 @@ public class StockfishEngine {
                 process = null;
             }
             writer = null;
+        }
+    }
+
+    /**
+     * Immediately terminates the engine without waiting for an active analysis
+     * call to release this object's monitor.
+     */
+    public void forceStop() {
+        forceStopRequested = true;
+        readerThreadRunning = false;
+
+        Process processToStop = process;
+        OutputStreamWriter writerToClose = writer;
+        if (writerToClose != null) {
+            try {
+                writerToClose.close();
+            } catch (IOException ignored) {
+                // ignore
+            }
+        }
+        if (processToStop != null) {
+            processToStop.destroyForcibly();
         }
     }
 }
