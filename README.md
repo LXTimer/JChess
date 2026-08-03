@@ -5,6 +5,7 @@ The game enforces all official chess rules — including **castling**, **en pa
 
 ![JChess Screenshot](screenshots/jchess_1.png)
 ![JChess Screenshot](screenshots/jchess_2.png)
+![JChess Screenshot](screenshots/jchess_3.png)
 
 ---
 
